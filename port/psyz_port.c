@@ -69,6 +69,17 @@ VECTOR* ApplyMatrixLV(MATRIX* m, VECTOR* v0, VECTOR* v1)
  * ------------------------------------------------------------------------ */
 
 #include "esp_attr.h"
+#include "esp_memory_utils.h"
+
+/* Is p somewhere game data can legitimately live: external RAM (the heaps,
+ * the PSX RAM image) or internal DRAM statics? The windows differ per chip
+ * (ESP32-S3: 0x3C000000 / 0x3FC80000, ESP32-P4: 0x48000000 / 0x4FF00000), so
+ * ask the SoC layer rather than compare address bits. Used by the defensive
+ * walks that must not follow a stale pointer into unmapped space. */
+int mgs_ptr_in_ram(const void* p)
+{
+    return esp_ptr_external_ram(p) || esp_ptr_in_dram(p);
+}
 
 EXT_RAM_BSS_ATTR unsigned char mgs_main_ram[0x80000 + 0xC9000 + 0x20000];
 

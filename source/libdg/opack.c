@@ -21,11 +21,11 @@ STATIC int DG_AllocPacks( DG_OBJ *obj, int idx )
          * whatever is there: LoadProhibited on a wild address, board reboots.
          * The console never sees it because there the teardown and the render
          * are locked in step. Nothing legitimate has hundreds of links or a
-         * pointer outside PSRAM, so stop rather than fault -- an object drawn
+         * pointer outside RAM, so stop rather than fault -- an object drawn
          * with too few packs for one frame is invisible; a reset is not. */
+        extern int mgs_ptr_in_ram(const void *); /* port/psyz_port.c */
         static int reported = 8;
-        if (total_packs > 4096 ||
-            ((unsigned)(uintptr_t)object >> 24) != 0x3Cu)
+        if (total_packs > 4096 || !mgs_ptr_in_ram(object))
         {
             if (reported > 0)
             {
