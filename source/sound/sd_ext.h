@@ -177,7 +177,7 @@ int get_str_counter(void);
 void sd_set(int sound_code);
 
 /* in se_tbl.c */
-extern SETBL se_tbl[128];
+extern const SETBL se_tbl[128];
 
 /* in sd_wk.c */
 extern unsigned long spu_ch_tbl[24+1];

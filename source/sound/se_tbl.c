@@ -5,7 +5,7 @@
 
 unsigned char se_dummy[] = { 0x00,0x00,0xfe,0xff };
 
-SETBL se_tbl[128] = {
+const SETBL se_tbl[128] = { /* read-only: lives in flash, not internal RAM */
     /* pri,tracks,kind,character */
     { 0x01, 0x01, 0x01, 0x00, { se_dummy,   se_dummy,   se_dummy   }}, /* 0 */
     { 0x40, 0x01, 0x01, 0x00, { shot_0100,  se_dummy,   se_dummy   }}, /* 1 */
