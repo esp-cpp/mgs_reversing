@@ -138,6 +138,18 @@ void Mgs_CdInit(void) {
     Mgs_SpiBusGive();
 }
 
+/* Release everything Mgs_CdInit() opened, so the game can be started again. */
+void Mgs_CdDeinit(void) {
+    int i;
+    for (i = 0; i < FS_MAX_FILEID; i++) {
+        if (cd_files[i]) { fclose(cd_files[i]); cd_files[i] = NULL; }
+        if (cd_data[i]) { free(cd_data[i]); cd_data[i] = NULL; }
+        cd_sizes[i] = 0;
+        cd_pos[i] = 0;
+    }
+    cd_ready = 0;
+}
+
 static void cd_open_all(void) { Mgs_CdInit(); }
 
 /* Not every file on the retail disc is on the board -- ZMOVIE.STR alone is

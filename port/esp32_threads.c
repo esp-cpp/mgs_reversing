@@ -247,7 +247,9 @@ long ChangeTh(unsigned long thread) {
         }
     }
 
+#ifdef MGS_TRACE_CHANGETH /* once per frame in steady state: console noise */
     printf("[thread] ChangeTh %d -> %d\n", self, target);
+#endif
     if (self >= 0 && self < MGS_MAX_THREADS) {
         threads[self].crit = psyz_critical_depth;
     }
@@ -323,4 +325,50 @@ void Mgs_TaskSleepForever(void) {
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+}
+
+/* Pause / resume / stop, for a platform with a pause menu and a game list.
+ *
+ * mts is cooperative, so exactly one PSX thread is live at any moment (the
+ * others park themselves in ChangeTh): that is the one to suspend and resume.
+ * Stop deletes every task OpenTh created and forgets the slots; the task that
+ * bootstrapped the game (adopted in ChangeTh, entry == 0) belongs to the
+ * caller and is left alone. Both must be called with the vblank tick held
+ * (esp32_vblank.c), so nothing wakes an mts thread meanwhile. */
+static int paused_thread = -1;
+
+void Mgs_ThreadsPause(void) {
+    paused_thread = current_thread;
+    if (paused_thread >= 0 && paused_thread < MGS_MAX_THREADS &&
+        threads[paused_thread].handle) {
+        vTaskSuspend(threads[paused_thread].handle);
+    }
+}
+
+void Mgs_ThreadsResume(void) {
+    if (paused_thread >= 0 && paused_thread < MGS_MAX_THREADS &&
+        threads[paused_thread].handle && threads[paused_thread].in_use) {
+        vTaskResume(threads[paused_thread].handle);
+    }
+    paused_thread = -1;
+}
+
+void Mgs_ThreadsStopAll(void) {
+    int i;
+    for (i = 0; i < MGS_MAX_THREADS; i++) {
+        if (threads[i].handle && threads[i].entry) {
+            vTaskDelete(threads[i].handle);
+        }
+        heap_caps_free(threads[i].stack);
+        heap_caps_free(threads[i].tcb);
+        threads[i].handle = 0;
+        threads[i].stack = NULL;
+        threads[i].tcb = NULL;
+        threads[i].entry = 0;
+        threads[i].in_use = 0;
+        threads[i].crit = 0;
+    }
+    current_thread = -1;
+    change_in_flight = 0;
+    paused_thread = -1;
 }

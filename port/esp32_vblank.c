@@ -44,18 +44,11 @@ extern void (*g_VsyncCallback)(void);   /* psyz/src/psyz/libetc.c */
 
 unsigned mgs_vblank_count;
 
-/* Set by a platform that has a pause menu: while nonzero the vblank stops
- * (every mts task then waits on it, which is the pause) and the scanout
- * leaves the panel alone. */
-volatile int mgs_paused;
 static void vblank_tick_task(void* arg) {
     TickType_t next = xTaskGetTickCount();
     (void)arg;
     for (;;) {
         vTaskDelayUntil(&next, pdMS_TO_TICKS(VBLANK_PERIOD_MS));
-        if (mgs_paused) {
-            continue;
-        }
         mgs_vblank_count++;
 #ifdef MGS_HUNT_ROGUE_WRITER
         /* One known-corrupted pack keeps landing at the same heap address
@@ -200,9 +193,6 @@ static void scanout_task(void* arg) {
     (void)arg;
     for (;;) {
         vTaskDelayUntil(&next, pdMS_TO_TICKS(SCANOUT_POLL_MS));
-        if (mgs_paused) {
-            continue;
-        }
         if (mgs_frame_seq == last_seq) {
             idle_ms += SCANOUT_POLL_MS;
             if (idle_ms < SCANOUT_IDLE_MS) {
@@ -271,23 +261,44 @@ static void scanout_task(void* arg) {
     }
 }
 
+static int started;
+static TaskHandle_t tick_task, lcd_task;
+
 void Mgs_StartVblank(void) {
-    static int started;
     if (started) {
         return;
     }
     started = 1;
     if (xTaskCreatePinnedToCore(vblank_tick_task, "mgs_vbl", 4096, NULL,
-                                VBLANK_TICK_PRIO, NULL, 0) != pdPASS) {
+                                VBLANK_TICK_PRIO, &tick_task, 0) != pdPASS) {
         printf("[vblank] could not start the tick task\n");
         started = 0;
         return;
     }
-    if (xTaskCreatePinnedToCore(scanout_task, "mgs_lcd", 4096, NULL, 6, NULL,
+    if (xTaskCreatePinnedToCore(scanout_task, "mgs_lcd", 4096, NULL, 6, &lcd_task,
                                 1) != pdPASS) {
         printf("[vblank] could not start the scanout task\n");
     }
     printf("[vblank] %d ms tick on core 0 (prio %d), scanout on core 1 "
            "(present on frame change)\n",
            VBLANK_PERIOD_MS, VBLANK_TICK_PRIO);
+}
+
+/* A platform with a pause menu freezes the game by holding the vblank tick
+ * (nothing wakes an mts task without it) and the scanout; stop deletes both
+ * so the game can be started over. */
+void Mgs_PauseVblank(void) {
+    if (tick_task) vTaskSuspend(tick_task);
+    if (lcd_task) vTaskSuspend(lcd_task);
+}
+
+void Mgs_ResumeVblank(void) {
+    if (lcd_task) vTaskResume(lcd_task);
+    if (tick_task) vTaskResume(tick_task);
+}
+
+void Mgs_StopVblank(void) {
+    if (tick_task) { vTaskDelete(tick_task); tick_task = NULL; }
+    if (lcd_task) { vTaskDelete(lcd_task); lcd_task = NULL; }
+    started = 0;
 }
