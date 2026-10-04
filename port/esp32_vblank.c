@@ -44,11 +44,18 @@ extern void (*g_VsyncCallback)(void);   /* psyz/src/psyz/libetc.c */
 
 unsigned mgs_vblank_count;
 
+/* Set by a platform that has a pause menu: while nonzero the vblank stops
+ * (every mts task then waits on it, which is the pause) and the scanout
+ * leaves the panel alone. */
+volatile int mgs_paused;
 static void vblank_tick_task(void* arg) {
     TickType_t next = xTaskGetTickCount();
     (void)arg;
     for (;;) {
         vTaskDelayUntil(&next, pdMS_TO_TICKS(VBLANK_PERIOD_MS));
+        if (mgs_paused) {
+            continue;
+        }
         mgs_vblank_count++;
 #ifdef MGS_HUNT_ROGUE_WRITER
         /* One known-corrupted pack keeps landing at the same heap address
@@ -193,6 +200,9 @@ static void scanout_task(void* arg) {
     (void)arg;
     for (;;) {
         vTaskDelayUntil(&next, pdMS_TO_TICKS(SCANOUT_POLL_MS));
+        if (mgs_paused) {
+            continue;
+        }
         if (mgs_frame_seq == last_seq) {
             idle_ms += SCANOUT_POLL_MS;
             if (idle_ms < SCANOUT_IDLE_MS) {

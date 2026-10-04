@@ -124,10 +124,18 @@ unsigned long OpenTh(unsigned long (*func)(), unsigned long sp,
      * smaller to make them fit, which is affordable because MGS itself only
      * asked for 2 KB. PSRAM stays as a fallback for tasks that never touch
      * files, rather than failing the OpenTh outright. */
-    threads[i].stack = heap_caps_malloc(MGS_THREAD_STACK, MALLOC_CAP_INTERNAL);
+    /* Which memory the stacks come from is the platform's call: internal
+     * RAM on the S3 boards (see above); a board whose data never comes off
+     * flash and whose internal RAM is the scarcer resource chooses PSRAM. */
+#ifndef MGS_THREAD_STACK_CAPS
+#define MGS_THREAD_STACK_CAPS MALLOC_CAP_INTERNAL
+#endif
+    threads[i].stack = heap_caps_malloc(MGS_THREAD_STACK, MGS_THREAD_STACK_CAPS);
     if (!threads[i].stack) {
-        printf("[thread] slot %d: no internal RAM, falling back to PSRAM\n", i);
-        threads[i].stack = heap_caps_malloc(MGS_THREAD_STACK, MALLOC_CAP_SPIRAM);
+        printf("[thread] slot %d: no room in the preferred memory, falling back\n", i);
+        threads[i].stack = heap_caps_malloc(MGS_THREAD_STACK,
+                                            MGS_THREAD_STACK_CAPS == MALLOC_CAP_INTERNAL
+                                                ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL);
     }
     threads[i].tcb = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
     if (!threads[i].stack || !threads[i].tcb) {

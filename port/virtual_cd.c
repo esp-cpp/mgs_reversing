@@ -70,6 +70,9 @@ extern void Mgs_DataPath(const char* name, char* out, unsigned n);
  * needs nothing. */
 extern void Mgs_SpiBusTake(void);
 extern void Mgs_SpiBusGive(void);
+/* Where the card keeps the disc files. The S3 boards mount at /sd; another
+ * platform layer overrides this with its own mount point. */
+__attribute__((weak)) const char* Mgs_SdRoot(void) { return "/sd/MGS"; }
 
 /* the task structure the real CD BIOS drives; the callback contract is
  * written in terms of it, so the virtual drive fills in the same fields */
@@ -92,7 +95,7 @@ void Mgs_CdInit(void) {
         /* the card wins when it carries the file: it is both bigger and
          * cheaper to read from, so a board with a card ignores whatever was
          * packed into flash for the same name */
-        snprintf(path, sizeof(path), "/sd/MGS/%s", cd_names[i]);
+        snprintf(path, sizeof(path), "%s/%s", Mgs_SdRoot(), cd_names[i]);
         f = fopen(path, "rb");
         if (f) {
             fseek(f, 0, SEEK_END);
