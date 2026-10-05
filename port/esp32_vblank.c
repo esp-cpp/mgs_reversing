@@ -43,6 +43,7 @@ extern void (*g_VsyncCallback)(void);   /* psyz/src/psyz/libetc.c */
 #define VBLANK_TICK_PRIO 10
 
 unsigned mgs_vblank_count;
+volatile unsigned mgs_spu_irq_delivered; /* audio diagnostics */
 
 static void vblank_tick_task(void* arg) {
     TickType_t next = xTaskGetTickCount();
@@ -94,10 +95,39 @@ static void vblank_tick_task(void* arg) {
             t_all++;
             if (mts_active_task_800C0DB0 == 11) t_idle++;
             if (psyz_critical_depth == 0) t_crit++;
-            if (g_VsyncCallback && psyz_critical_depth == 0 &&
+            /* One gate, evaluated once: delivering an interrupt switches the
+             * active task, so a second look at "is it idle" after the first
+             * delivery is false by then. The SPU interrupt and the root
+             * counters go first: they are raised on the audio core by the
+             * sample pull (psyz_spu.c) and their handlers are the sound
+             * driver's, which touch the scheduler like the vblank's does. */
+            if (psyz_critical_depth == 0 &&
                 mts_active_task_800C0DB0 == 11 /* MTS_TASK_IDLE */) {
-                t_fired++;
-                g_VsyncCallback();
+                extern volatile int psyz_pending_spu_irq;
+                extern volatile int psyz_pending_rcnt;
+                extern void (* volatile _spu_IRQCallback)(void);
+                extern void Psyz_RcntAdd(int n);
+                extern volatile unsigned mgs_spu_irq_delivered;
+                int n = __atomic_exchange_n(&psyz_pending_rcnt, 0, __ATOMIC_RELAXED);
+                int k = psyz_pending_spu_irq;
+                if (n > 0) {
+                    Psyz_RcntAdd(n);
+                }
+                /* every pass counts: the handler advances the driver's
+                 * stream position per interrupt. Bounded, so a long stall
+                 * does not turn into a burst. */
+                if (k > 4) k = 4;
+                if (k > 0) {
+                    __atomic_fetch_sub(&psyz_pending_spu_irq, k, __ATOMIC_RELAXED);
+                    while (k-- > 0 && _spu_IRQCallback) {
+                        mgs_spu_irq_delivered++;
+                        _spu_IRQCallback();
+                    }
+                }
+                if (g_VsyncCallback) {
+                    t_fired++;
+                    g_VsyncCallback();
+                }
             }
 #ifdef MGS_BOARD_XIAO
             /* The controls get their own, much faster cadence.

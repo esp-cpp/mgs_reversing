@@ -57,6 +57,9 @@ typedef struct {
      * flag wedged the whole system the moment that happened; so the flag is
      * per-thread, swapped on every switch. */
     int crit;
+    /* stopped by the tick in the middle of its code (ChangeThFromISR), so it
+     * is not parked on its notification and must be vTaskResume'd instead */
+    volatile int forced;
 } MgsThread;
 
 extern volatile int psyz_critical_depth;   /* psyz libapi.c: the running task's "SR" */
@@ -73,13 +76,41 @@ static int current_thread = -1;
  * returns 0 and mts reverts its bookkeeping). */
 static volatile int change_in_flight;
 
+/* How a PSX thread parks and is woken.
+ *
+ * Not vTaskSuspend / vTaskResume: a resume that lands before the target has
+ * suspended itself is silently dropped, and the target then sleeps forever.
+ * That is a real window here -- a freshly opened thread is resumed by
+ * ChangeTh before its trampoline has reached its park, and a thread that
+ * switches away is woken back by its target before it has parked -- and it
+ * showed as the game stalling at the sound task's start on a relaunch until
+ * the pause menu happened to vTaskResume the right task. Task notifications
+ * are latched: a wake given early is consumed by the next park. The one
+ * exception is a thread the tick stopped mid-code (ChangeThFromISR): that one
+ * is not parked and is resumed the FreeRTOS way, see MgsThread::forced. */
+static void thread_park(void) {
+    /* a suspend/resume by the menu around a parked task makes the take return
+     * 0 without a notification: wait again */
+    while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {
+    }
+}
+
+static void thread_wake(int i) {
+    if (threads[i].forced) {
+        threads[i].forced = 0;
+        vTaskResume(threads[i].handle);
+    } else {
+        xTaskNotifyGive(threads[i].handle);
+    }
+}
+
 static void thread_trampoline(void* arg) {
     MgsThread* t = (MgsThread*)arg;
     /* Park BEFORE running anything. Creating the task and then suspending it
      * from the creator is a race: on a dual-core chip FreeRTOS can start it on
      * the other core immediately, so the PSX thread would run before the code
      * that created it had finished filling in its task control block. */
-    vTaskSuspend(NULL);
+    thread_park();
     if (t->entry) {
         t->entry();
     }
@@ -255,13 +286,13 @@ long ChangeTh(unsigned long thread) {
     }
     psyz_critical_depth = threads[target].crit;
     current_thread = target;
-    vTaskResume(threads[target].handle);
+    thread_wake(target);
 
     if (self >= 0 && self < MGS_MAX_THREADS && threads[self].handle) {
         /* cleared just before parking: from here on current_thread is
          * consistent and the tick may preempt again */
         change_in_flight = 0;
-        vTaskSuspend(NULL);
+        thread_park();
     } else {
         change_in_flight = 0;
         /* nothing to park: spin the scheduler so the target actually runs */
@@ -311,12 +342,13 @@ long ChangeThFromISR(unsigned long thread) {
     if (current_thread >= 0 && current_thread < MGS_MAX_THREADS &&
         current_thread != target && threads[current_thread].handle) {
         vTaskSuspend(threads[current_thread].handle);
+        threads[current_thread].forced = 1;
         /* swap the per-task interrupt mask exactly like ChangeTh does */
         threads[current_thread].crit = psyz_critical_depth;
     }
     psyz_critical_depth = threads[target].crit;
     current_thread = target;
-    vTaskResume(threads[target].handle);
+    thread_wake(target);
     return 1;
 }
 
@@ -367,6 +399,7 @@ void Mgs_ThreadsStopAll(void) {
         threads[i].entry = 0;
         threads[i].in_use = 0;
         threads[i].crit = 0;
+        threads[i].forced = 0;
     }
     current_thread = -1;
     change_in_flight = 0;

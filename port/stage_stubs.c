@@ -4,7 +4,8 @@
  *   - actor constructors from overlays that still contain assembly. A boot
  *     reaching one is trying to spawn something from a stage we did not
  *     link; it says so and carries on rather than faulting.
- *   - SPU internals: audio, not wired up yet.
+ *   - (the SPU internals that used to be here are real now: psyz's SPU
+ *     emulation plus port/spu_compat.c)
  *   - MDEC: the movie decoder, likewise.
  */
 
@@ -36,33 +37,6 @@ void* NewStage11GDemo(void) { missing_actor("NewStage11GDemo"); return 0; }
 void* NewStage11Objects(void) { missing_actor("NewStage11Objects"); return 0; }
 void* NewWire(void) { missing_actor("NewWire"); return 0; }
 
-/* audio: the SPU emulation is not wired up yet */
-int SpuGetKeyStatus(void) { return 0; }
-int SpuReserveReverbWorkArea(void) { return 0; }
-int SpuSetIRQ(void) { return 0; }
-int SpuSetIRQAddr(void) { return 0; }
-int SpuSetPitchLFOVoice(void) { return 0; }
-int SpuSetReverbDepth(void) { return 0; }
-int SpuSetReverbVoice(void) { return 0; }
-int _SpuIsInAllocateArea_(void) { return 0; }
-int _spu_FiDMA(void) { return 0; }
-int _spu_FsetRXX(void) { return 0; }
-int _spu_FsetRXXa(void) { return 0; }
-int _spu_Fw(void) { return 0; }
-
-int _spu_inTransfer;
-int _spu_init(void) { return 0; }
-int _spu_mem_mode_plus;
-int _spu_mem_mode_unitM;
-int _spu_transMode;
-/* These two are NOT functions: psyz declares them as callback POINTERS
- * (libspu_private.h:190). Stubbing them as functions put them in read-only
- * flash, so the first `_spu_transferCallback = 0` inside SpuClearReverbWorkArea
- * stored into .text and faulted the cache. Kind matters as much as name. */
-void (* volatile _spu_transferCallback)();
-void (* volatile _spu_IRQCallback)();
-int _spu_tsa;
-
 /* MDEC: full-motion video */
 int DecDCToutSync(void) { return 0; }
 int DecDCTvlc2(void) { return 0; }
@@ -78,7 +52,6 @@ int s15c_dyncon_800D8C9C;
 int VBLANK_MINUS;
 int _snd_ev_flag;
 int _snd_openflag;
-int _spu_Fr;
 int _svm_sreg;
 void _SsMarkCallback(void) {}
 void _SsVmInit(void) {}

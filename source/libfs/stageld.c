@@ -43,15 +43,14 @@ static int SetupNextFile( DATACNF_TAG *tag, CDBIOS_TASK *task )
     switch ( region )
     {
     case 's': // .sound
-#ifdef __psyz
-        /* Sound data is streamed straight into SPU RAM through the SD_*
-         * loaders, and those wait on transfer states the software SPU does
-         * not raise yet (sd_init's SpuMalloc already failed:
-         * spu_wave_start_ptr=ffffffff). The first wvx made PcmRead spin
-         * forever inside the load callback and the whole stage load froze at
-         * its final file. Until the audio phase, stream sound files to
-         * nowhere: NULL buffer means "consume the sectors, keep nothing",
-         * which is the same mechanism the dev build uses for the overlay. */
+#ifdef MGS_NO_SOUND_FILES
+        /* A build without a working SPU: the SD_* loaders stream sound data
+         * straight into SPU RAM and wait on transfer states, and before the
+         * software SPU raised them the first wvx froze the stage load at its
+         * final file. Stream sound files to nowhere instead: NULL buffer means
+         * "consume the sectors, keep nothing", the same mechanism the dev
+         * build uses for the overlay. (With psyz's SPU wired up -- the
+         * transfers complete synchronously -- the files load normally.) */
         if ( tag->ext != 'b' )
         {
             task->buffer = NULL;
