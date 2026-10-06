@@ -41,10 +41,28 @@ void DG_MovePos( SVECTOR *mov )
 void DG_RotatePos( SVECTOR *rot )
 {
     MATRIX tmp_mat;
+#ifdef __psyz
+    /* What the PSY-Q sequence below means: rotation = current x R(rot),
+     * the current rotation being the pose someone just installed (the demo
+     * camera: DG_SetPos2 with its 180-degree roll that turns the y-up world
+     * into the y-down screen, then this with the shot's own roll). The
+     * port's RotMatrixYXZ_gte overwrites the GTE matrix with R(rot) and its
+     * MulRotMatrix leaves the product in the GTE rather than in its argument,
+     * so the original three lines install plain R(rot) here and the pose is
+     * lost -- every cutscene came out upside down. Those helpers are left as
+     * they are (the skeleton path depends on their current behaviour, see
+     * port/psyq_compat.c); this composes explicitly. */
+    MATRIX cur;
 
+    gte_ReadRotMatrix( &cur );
+    RotMatrixYXZ( rot, &tmp_mat );
+    MulMatrix0( &cur, &tmp_mat, &tmp_mat );
+    gte_SetRotMatrix( &tmp_mat );
+#else
     RotMatrixYXZ_gte( rot, &tmp_mat );
     MulRotMatrix( &tmp_mat );
     gte_SetRotMatrix( &tmp_mat );
+#endif
 }
 
 /*---------------------------------------------------------------------------*/
