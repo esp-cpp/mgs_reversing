@@ -559,6 +559,65 @@ void sub_80047D70(MenuWork *work, int param_2, int pRadioCode)
 
     char pad[8]; // unused stack...
 
+#ifdef __psyz
+    /* The decompilation is of MGS Integral, whose scripts address RADIO.DAT
+     * by sector: code = [extra:8][size sectors:8][sector:16]. The US disc
+     * this port runs from (SLUS-00594) packs its codes differently:
+     *
+     *     code = [extra sectors:8][byte offset into RADIO.DAT:24]
+     *
+     * Every code in STAGE.DIR lands on a call block (frequency, FACE.DAT
+     * group word, flags, 0x80 len block) at exactly that byte offset, and the
+     * top byte is the number of sectors the block spills past the one that
+     * holds the offset. The Integral split read sector 31392 of a 867-sector
+     * file, which is why no Colonel conversation was ever parsed. */
+    {
+        unsigned offset = (unsigned)pRadioCode & 0xffffffu;
+        unsigned extra = (unsigned)pRadioCode >> 24;
+
+        startSector = offset >> 11;
+        size = (extra + 1) * 2048;
+
+        radioDatFragment = GV_AllocMemory(GV_PACKET_MEMORY0, size);
+        if (radioDatFragment == NULL)
+        {
+            printf("no memory\n");
+        }
+
+        pCharaStruct = work->field_218;
+
+        sub_80048124();
+        sub_800469F0(pCharaStruct);
+        pCharaStruct->field_1C_radioDatFragment = radioDatFragment;
+        /* the parser starts at the call block, part way into the first sector */
+        pCharaStruct->field_8_radioDatFragment =
+            radioDatFragment ? (char *)radioDatFragment + (offset & 0x7ff) : NULL;
+        pCharaStruct->field_C_pScript = NULL;
+        pCharaStruct->field_4 = param_2;
+        pCharaStruct->field_0_state = 0;
+        pCharaStruct->field_38 = 0;
+
+        for (i = 0; i < 2; i++)
+        {
+            pCharaStructSub = &pCharaStruct->field_3C[i];
+            pCharaStructSub->field_0_animState = 0;
+            pCharaStructSub->field_4 = 0;
+        }
+
+        FS_LoadFileRequest(1, startSector, size, radioDatFragment);
+        /* and wait for it: the parser task guards on the STREAMING task, not
+         * on this read, and here the read takes longer than the slack it had
+         * on the console */
+        while (FS_LoadFileSync() > 0)
+        {
+            mts_wait_vbl(1);
+        }
+        printf("[radio] code %08X -> offset %u (sector %d +%u bytes), %d bytes, head %02X%02X\n",
+               (unsigned)pRadioCode, offset, startSector, offset & 0x7ff, size,
+               pCharaStruct->field_8_radioDatFragment ? (unsigned char)pCharaStruct->field_8_radioDatFragment[0] : 0,
+               pCharaStruct->field_8_radioDatFragment ? (unsigned char)pCharaStruct->field_8_radioDatFragment[1] : 0);
+    }
+#else
     startSector = pRadioCode & 0xffff;
     if (GM_OptionFlag & OPTION_ENGLISH)
     {
@@ -599,29 +658,6 @@ void sub_80047D70(MenuWork *work, int param_2, int pRadioCode)
 
     // radioDatFragment is parsed in menu_radio_codec_task_proc_80047AA0()
     FS_LoadFileRequest(1, startSector, size, radioDatFragment);
-#ifdef __psyz
-    /* and wait for it, the way the face-group load a few lines up already
-     * does. Nothing else does: the parser guards on FS_StreamTaskState(),
-     * which watches the STREAMING task, not this file read -- a different
-     * mechanism entirely. On the console the codec has frames of slack before
-     * it looks at the buffer and the read has long finished, so the missing
-     * wait is invisible. Here the buffer is parsed while it still holds its
-     * fill pattern: sectorAndSize came back 0xCCEEEEAE, which asks FACE.DAT
-     * for sector 15658670 of a file that has about 1700, and the parser then
-     * finds zero faces. That is why no Colonel conversation has ever been
-     * drawn. */
-    while (FS_LoadFileSync() > 0)
-    {
-        mts_wait_vbl(1);
-    }
-    /* Show the RAW code everything is derived from. The sector it produces is
-     * 31392 and RADIO.DAT is 867 sectors on this disc -- verified against the
-     * image itself, the file is not truncated. So no split of that word into
-     * sector and size can be right: the input is wrong, not the arithmetic.
-     * Print it and stop guessing at bit layouts. */
-    printf("[face] LOADER code %08X -> sector %d size %d | frag %p first %08lX\n",
-           (unsigned)pRadioCode, startSector, size, radioDatFragment,
-           radioDatFragment ? *(unsigned long *)radioDatFragment : 0ul);
 #endif
 
     pCharaStruct->field_24_pImgData256 = GV_AllocMemory(GV_PACKET_MEMORY0, 0x200);
