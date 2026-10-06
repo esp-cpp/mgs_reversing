@@ -5,6 +5,12 @@
 #include <libgpu.h>
 
 #include "libdg.h"
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#define MGS_CY_PER_MS (CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ * 1000u)
+#else
+#define MGS_CY_PER_MS 360000u
+#endif
 #include "common.h"
 #include "libgv/libgv.h"
 #include "menu/menuman.h"
@@ -186,6 +192,26 @@ void DG_SwapFrame(void)
             psyz_texel_zero = 0;
             psyz_texel_ok = 0;
             psyz_flat_px = 0;
+            {
+                extern unsigned psyz_prof_cy[6], psyz_prof_n[6];
+                int k;
+                printf("[rprof] ms/calls: tex %u/%u flat-semi %u/%u flat-fast %u/%u "
+                       "sprite %u/%u tile %u/%u | tri-setup %u/%u\n",
+                       psyz_prof_cy[0] / MGS_CY_PER_MS, psyz_prof_n[0], psyz_prof_cy[1] / MGS_CY_PER_MS,
+                       psyz_prof_n[1], psyz_prof_cy[2] / MGS_CY_PER_MS, psyz_prof_n[2],
+                       psyz_prof_cy[3] / MGS_CY_PER_MS, psyz_prof_n[3], psyz_prof_cy[4] / MGS_CY_PER_MS,
+                       psyz_prof_n[4], psyz_prof_cy[5] / MGS_CY_PER_MS, psyz_prof_n[5]);
+                for (k = 0; k < 6; k++) { psyz_prof_cy[k] = 0; psyz_prof_n[k] = 0; }
+                {
+                    extern unsigned psyz_prof_rows, psyz_prof_px, psyz_prof_span_cy,
+                        psyz_prof_texfrom_cy;
+                    printf("[rprof2] rows %u px %u | span %u ms (%u cy/px) | texfrom %u ms\n",
+                           psyz_prof_rows, psyz_prof_px, psyz_prof_span_cy / MGS_CY_PER_MS,
+                           psyz_prof_px ? psyz_prof_span_cy / psyz_prof_px : 0,
+                           psyz_prof_texfrom_cy / MGS_CY_PER_MS);
+                    psyz_prof_rows = psyz_prof_px = psyz_prof_span_cy = psyz_prof_texfrom_cy = 0;
+                }
+            }
             printf("[prims] 2x %u 3x %u 4x %u 5x %u 6x %u 7x %u\n",
                    psyz_prim_by_code[2], psyz_prim_by_code[3],
                    psyz_prim_by_code[4], psyz_prim_by_code[5],

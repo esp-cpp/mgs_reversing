@@ -595,6 +595,16 @@ static int GM_Command_load(char *top)
         if (resolved != scriptStageName)
         {
             printf("[stage] '%s' -> '%s'\n", scriptStageName, resolved);
+            /* A demo stage plays its cutscene from its demo.gcx, which the
+             * script leading into it selects with "stage dXXX -d 1"; the
+             * boot chain resolved here never says so, so say it. (The -d
+             * option below, if the script carries one, still has the last
+             * word.) */
+            if (resolved[0] == 'd')
+            {
+                GCL_ChangeSenerioCode(1);
+                printf("[stage] demo script selected for %s\n", resolved);
+            }
             scriptStageName = (char *)resolved;
         }
     }

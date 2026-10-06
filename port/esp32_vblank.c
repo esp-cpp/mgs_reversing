@@ -32,6 +32,7 @@
 #include <libgpu.h>
 
 extern void (*g_VsyncCallback)(void);   /* psyz/src/psyz/libetc.c */
+extern int Mgs_ChangeInFlight(void);   /* esp32_threads.c */
 
 /* NTSC field rate. The tick is 1 ms, so 16 ms is the closest whole number;
  * that is 62.5 Hz rather than 59.94, which is near enough for pacing and can
@@ -101,21 +102,20 @@ static void vblank_tick_task(void* arg) {
              * counters go first: they are raised on the audio core by the
              * sample pull (psyz_spu.c) and their handlers are the sound
              * driver's, which touch the scheduler like the vblank's does. */
-            if (psyz_critical_depth == 0 &&
-                mts_active_task_800C0DB0 == 11 /* MTS_TASK_IDLE */) {
+            /* The SPU interrupt is the sound driver's clock: it counts them
+             * to know where the streaming voice is and refills the other
+             * half of its buffer in time. Delivered only at idle (a few
+             * times a second, in batches) the refill lags and the voice
+             * loops a stale half -- speech repeating itself. So it is
+             * delivered whenever the game is outside a critical section
+             * and not mid-switch, like the interrupt it emulates: the
+             * handler (sd_str.c, then mts_isend -> ChangeThFromISR) is the
+             * one the console ran from its own IRQ. */
+            if (psyz_critical_depth == 0 && !Mgs_ChangeInFlight()) {
                 extern volatile int psyz_pending_spu_irq;
-                extern volatile int psyz_pending_rcnt;
                 extern void (* volatile _spu_IRQCallback)(void);
-                extern void Psyz_RcntAdd(int n);
                 extern volatile unsigned mgs_spu_irq_delivered;
-                int n = __atomic_exchange_n(&psyz_pending_rcnt, 0, __ATOMIC_RELAXED);
                 int k = psyz_pending_spu_irq;
-                if (n > 0) {
-                    Psyz_RcntAdd(n);
-                }
-                /* every pass counts: the handler advances the driver's
-                 * stream position per interrupt. Bounded, so a long stall
-                 * does not turn into a burst. */
                 if (k > 4) k = 4;
                 if (k > 0) {
                     __atomic_fetch_sub(&psyz_pending_spu_irq, k, __ATOMIC_RELAXED);
@@ -123,6 +123,15 @@ static void vblank_tick_task(void* arg) {
                         mgs_spu_irq_delivered++;
                         _spu_IRQCallback();
                     }
+                }
+            }
+            if (psyz_critical_depth == 0 &&
+                mts_active_task_800C0DB0 == 11 /* MTS_TASK_IDLE */) {
+                extern volatile int psyz_pending_rcnt;
+                extern void Psyz_RcntAdd(int n);
+                int n = __atomic_exchange_n(&psyz_pending_rcnt, 0, __ATOMIC_RELAXED);
+                if (n > 0) {
+                    Psyz_RcntAdd(n);
                 }
                 if (g_VsyncCallback) {
                     t_fired++;

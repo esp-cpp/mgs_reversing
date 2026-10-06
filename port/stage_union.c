@@ -92,6 +92,11 @@ CHARA _StageCharacterEntries[] = {
     CHARA_BUB_D_SN,
     CHARA_PUT_OBJECT,
     CHARA_DUCTMOUSE,
+    DEMO_FADEOUT,
+    DEMO_SHADOW,
+    DEMO_UNSHAPEVIEW,
+    DEMO_BLUR,
+    DEMO_FAMASLIGHT,
 
     /* abst */
     CHARA_LOAD_DATA,
@@ -108,17 +113,55 @@ CHARA _StageCharacterEntries[] = {
 
     /* d00a */
     CHARA_WT_VIEW,
+    DEMO_FADEIN,
+    DEMO_TEXT,
+    DEMO_BREATH,
+    DEMO_BUBBLE,
+    DEMO_BUBBLE2,
+    DEMO_URINATIONCIRCLE2,
+    DEMO_ENVIRONMENTLIGHT,
+    DEMO_ENVIRONMENTLIGHT2,
+    DEMO_GHOST,
+
+    /* d01a */
+    DEMO_WINDCIRCLE,
 
     /* d03a */
     CHARA_UJI,
+    DEMO_MONOTONE,
+    DEMO_GUSEFFECT,
+
+    /* d11c */
+    DEMO_OPTICSCAMOUFLAGE,
+    DEMO_OPTICSCAMOUFLAGE2,
+
+    /* d16e */
+    DEMO_SMOKELINE,
+    DEMO_SPACK,
+    DEMO_SPACK2,
+    DEMO_INVERSLIGHT2,
 
     /* d18a */
     CHARA_SNAKE18,
     CHARA_SMKTRGT,
     CHARA_WAKE,
+    DEMO_BLACKSMOKE2,
+    DEMO_BOMBLIGHT,
+
+    /* ending */
+    DEMO_FOOTPRINTS,
+    DEMO_ENVIRONMENTMAPPING,
+    DEMO_CATERPILLERSMOKE,
 
     /* opening */
     CHARA_TEXSCROLL,
+    DEMO_SCOPE,
+    DEMO_DARKVISIBLEGOGGLE,
+    DEMO_DARKVISIBLEGOGGLE2,
+    DEMO_IRRAYSGOGGLE,
+    DEMO_IRRAYSGOGGLE2,
+    DEMO_SUBMARINEROOM,
+    DEMO_SUBMARINEWATER,
 
     /* option */
     CHARA_OPT,
@@ -141,6 +184,8 @@ CHARA _StageCharacterEntries[] = {
     CHARA_CAMERAGUN,
     CHARA_HIYOKO,
     CHARA_RADARPOINT,
+    DEMO_BULLET,
+    DEMO_TEXT2,
 
     /* s03b */
     CHARA_TORTURE,
@@ -188,6 +233,11 @@ CHARA _StageCharacterEntries[] = {
     CHARA_WALLSPARK,
     CHARA_BLOOD_POOL,
     CHARA_BLOOD_POOL2,
+    DEMO_BLOOD,
+    DEMO_BLOOD2,
+    DEMO_BLOODCIRCLE,
+    DEMO_NINJAEYE,
+    DEMO_NINJASWORD,
 
     /* s11c */
     CHARA_DYNFLOOR,
@@ -213,6 +263,7 @@ CHARA _StageCharacterEntries[] = {
 
     /* s12a */
     CHARA_WOLF,
+    DEMO_OCEROTTEBULLETFIRE,
 
     /* s12c */
     CHARA_DOG,
@@ -235,8 +286,13 @@ CHARA _StageCharacterEntries[] = {
     CHARA_WT_AREA2,
     CHARA_ITEM_DOT,
 
+    /* s16b */
+    DEMO_SEPIA,
+
     /* s16d */
     CHARA_BELONG,
+    DEMO_OCEROTTEBULLETSMOKE,
+    DEMO_MGCROOMDISPLAY,
 
     /* s19b */
     CHARA_COUNTDOWN2,

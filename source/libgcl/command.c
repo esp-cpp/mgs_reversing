@@ -47,6 +47,18 @@ int GCL_Command( char *ptr )
     id = GCL_GetShort( ptr );
     cl = FindCommand( id );
     ptr += sizeof(short);
+#ifdef __psyz
+    {
+        /* which commands does a script actually run? (names: grep the hash
+         * in the command tables, e.g. game/script.c) */
+        static int budget = 600;
+        if ( budget > 0 )
+        {
+            budget--;
+            printf( "[gcl] cmd %04X\n", (unsigned)id );
+        }
+    }
+#endif
 
     ofs = GCL_GetByte( ptr );
     GCL_SetCommandLine( ptr + ofs );

@@ -283,7 +283,11 @@ int memcard_check(int port)
      * whole boot stops inside memcard_init(). Report "no card present", which
      * is a state the game already handles -- it is also simply true. */
     gMemCards[port].last_op = 2; /* error / absent */
-    return 0;
+    /* the value the real routine gives for an absent card: negative (so not
+     * ">= 0", which every caller reads as "card OK" and follows with
+     * memcard_get_files, which has nothing to give) and not an error code
+     * ((v & 3) == 3) */
+    return (int)0x80000001;
 #endif
 
     chan = port * 16;

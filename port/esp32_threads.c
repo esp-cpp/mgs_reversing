@@ -303,6 +303,8 @@ long ChangeTh(unsigned long thread) {
 
 /* the scheduler asks who is running */
 int Mgs_CurrentThread(void) { return current_thread; }
+/* is a cooperative switch half-done? (the tick must not deliver then) */
+int Mgs_ChangeInFlight(void) { return change_in_flight; }
 
 /* Resume a PSX thread WITHOUT parking the caller.
  *

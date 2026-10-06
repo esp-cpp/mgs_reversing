@@ -71,7 +71,10 @@ def collect():
         body = txt.split("_StageCharacterEntries[]", 1)[1]
         if "0x800" in body:            # filter 1: raw MIPS addresses
             continue
-        names = [n for n in re.findall(r"\bCHARA_[A-Z0-9_]+\b", body)
+        # DEMO_* are actor classes like any other (the cutscene effects:
+        # fade, telop, bubbles, goggles, blur); a table that lists one the
+        # build cannot supply is as unusable as one listing a CHARA_
+        names = [n for n in re.findall(r"\b(?:CHARA|DEMO)_[A-Z0-9_]+\b", body)
                  if n != "CHARA_END"]
         if any(not resolvable(charalst, n) for n in names):   # filter 2
             continue

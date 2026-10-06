@@ -128,8 +128,17 @@ void menuman_act_800386A4(MenuWork *work)
              * (the codec faces) and nothing the player needs to move around,
              * so it stays off while the radar -- which is what tells you where
              * you are -- comes back. Widen this mask as each one is proven. */
+#ifdef MGS_HUD_RADAR_ONLY
             field_28_flags &= (1 << MENU_RADAR) |
                               (MGS_CODEC_SCREEN ? (1 << MENU_RADIO) : 0);
+#else
+            /* every drawer the game asks for (the Tab5 build: the codec faces
+             * draw once FACE.DAT loads in order, see radiomes.c) */
+            if (!MGS_CODEC_SCREEN)
+            {
+                field_28_flags &= ~(1 << MENU_RADIO);
+            }
+#endif
 #endif
             for (i = 0; i < MENU_MODULE_MAX; i++)
             {

@@ -243,6 +243,16 @@ int FS_StreamSync( void )
     int   size;
     int   remaining;
 
+#ifdef __psyz
+    /* The console's drive delivered the requested sectors on its own, from
+     * an interrupt, and StreamReadyCallback ran there. The virtual CD
+     * (port/virtual_cd.c) delivers in CDBIOS_ReadSync, which the stage
+     * loader polls but nothing on the stream path did -- so a stream
+     * request sat undelivered forever. Deliver here, once per poll: this is
+     * the consumer's own thread, so the callback's ring bookkeeping cannot
+     * race the readers below. */
+    CDBIOS_ReadSync();
+#endif
     stream_read = fs_stream_read;
     stream_end = fs_stream_end;
 

@@ -206,7 +206,9 @@ void *NewStreamControl( int stream_code, int gcl_proc, int flags )
      * carry on, and run the completion callback so whatever was waiting on the
      * stream gets its turn. */
     {
-        /* CD STREAMING IS NOT IMPLEMENTED ON THIS BOARD.
+        /* (Historical note, kept because the failure mode is instructive;
+         * the streaming path now exists: libfs/stream.c pumps the virtual CD.)
+         * CD STREAMING WAS NOT IMPLEMENTED ON THIS BOARD.
          *
          * The virtual CD serves ordinary sector reads, which is what stage
          * loading needs, but the PSX's *streaming* path is a different
@@ -227,13 +229,19 @@ void *NewStreamControl( int stream_code, int gcl_proc, int flags )
          * cutscenes and the voice-overs; the gain is a game that plays. Remove
          * this once the streaming path exists -- the data is on the card and
          * the rest of the machinery is intact. */
-        printf( "[stream] sector %d declined: CD streaming not implemented on "
-                "this board\n", stream_code );
-        if ( gcl_proc < 0 )
+        extern int Mgs_CdSectorPresent( unsigned sector );
+        if ( !Mgs_CdSectorPresent( (unsigned)stream_code ) )
         {
-            GCL_ExecProc( gcl_proc & 0xFFFF, 0 );
+            printf( "[stream] sector %d declined: its file is not on the card\n",
+                    stream_code );
+            if ( gcl_proc < 0 )
+            {
+                GCL_ExecProc( gcl_proc & 0xFFFF, 0 );
+            }
+            return (void *)&strctrl_work;
         }
-        return (void *)&strctrl_work;
+        /* otherwise: the file is there and FS_StreamSync pumps the virtual CD,
+         * so the stream runs as on the console */
     }
 #endif
 

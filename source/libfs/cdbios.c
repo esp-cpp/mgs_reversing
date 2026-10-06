@@ -10,6 +10,7 @@
 #define CDBIOS_Reset CDBIOS_Reset_disc
 #define CDBIOS_ReadRequest CDBIOS_ReadRequest_disc
 #define CDBIOS_ReadSync CDBIOS_ReadSync_disc
+#define CDBIOS_ForceStop CDBIOS_ForceStop_disc
 #endif
 
 

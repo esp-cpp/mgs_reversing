@@ -218,6 +218,21 @@ char *GCL_GetVar( char *top, int *type_p, int *value_p )
         ptr = (char *)&gGcl_vars_800B3CC8;
     }
     ptr += GCL_GetVarOffset(gcl_var);
+#ifdef __psyz
+    {
+        /* which variables do scripts read, and what do they find? */
+        static int budget = 400;
+        if ( budget > 0 )
+        {
+            budget--;
+            printf( "[gcl] var %08X -> %d\n", (unsigned)gcl_var,
+                    gcl_code == GCL_SHORT ? *(short *)ptr
+                    : (gcl_code == GCL_BYTE || gcl_code == GCL_CHAR) ? (unsigned char)*ptr
+                    : gcl_code == GCL_BOOL ? ((*ptr & GCL_GetFlagBitFlag(gcl_var)) != 0)
+                    : *(unsigned short *)ptr );
+        }
+    }
+#endif
     switch (gcl_code)
     {
     case GCL_SHORT: // $w:

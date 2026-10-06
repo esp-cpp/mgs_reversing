@@ -6,6 +6,7 @@
 #include "libdg/libdg.h"
 #include "libfs/libfs.h"
 #include "game/game.h"
+#include "libgcl/libgcl.h"
 
 typedef struct _Work
 {
@@ -139,6 +140,17 @@ void *NewLoader(const char *dir)
         if (resolved && resolved != dir)
         {
             printf("[stage] '%s' -> '%s'\n", dir, resolved);
+            /* A demo stage (d00a, d01a, ...) plays its cutscene from its
+             * demo.gcx, which the script that leads into it selects with
+             * "stage dXXX -d 1". Booting straight into one skips that
+             * script, so select it here -- the last step before the stage
+             * block is read; its own scenerio.gcx only adds the map and
+             * waits. */
+            if (resolved[0] == 'd')
+            {
+                GCL_ChangeSenerioCode(1);
+                printf("[stage] demo script selected for %s\n", resolved);
+            }
             dir = resolved;
         }
     }

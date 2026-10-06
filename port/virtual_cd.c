@@ -339,3 +339,17 @@ static int cd_pump(void) {
 int CDBIOS_ReadSync(void) {
     return cd_pump();
 }
+
+/* FS_StreamStop: whatever request is outstanding must deliver nothing more
+ * (the disc version only flags its own task, which does not exist here). */
+void CDBIOS_ForceStop(void) {
+    cd_bios_task_800B4E58.state = CDBIOS_STATE_IDLE;
+}
+
+/* Does the card hold the file a stream at this sector would read from?
+ * strctrl.c declines a stream whose data is absent (the console could not
+ * have that happen, so nothing downstream copes with it). */
+int Mgs_CdSectorPresent(unsigned sector) {
+    unsigned slot = sector / SLOT_SECTORS;
+    return slot < FS_MAX_FILEID && Mgs_CdFilePresent((int)slot);
+}

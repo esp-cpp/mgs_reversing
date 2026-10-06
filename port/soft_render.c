@@ -41,6 +41,7 @@ u16 g_RawVram[VRAM_H * VRAM_W];
 #define SOFT_RASTER_IRAM IRAM_ATTR
 #endif
 #define SOFT_CLUT_CACHE
+#define SOFT_RASTER_RECIP /* RV32: no 64-bit divide instruction */
 #include "platform/soft_raster.inc.c"
 
 /* The scanout asks which rows of VRAM the drawing area covers, so it only
