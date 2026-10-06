@@ -1649,6 +1649,9 @@ void menu_radio_kill(MenuWork *work)
 
 void MENU_RadioCall(int param_1, int param_2, int time)
 {
+#ifdef __psyz
+    printf("[radio] call freq %d code %08X time %d\n", param_1, (unsigned)param_2, time);
+#endif
     gRadioIncomingCall_8009E708.field_0 = param_1;
     gRadioIncomingCall_8009E708.field_4 = param_2;
 

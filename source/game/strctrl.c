@@ -39,9 +39,12 @@ static void Act( StreamCtrlWork *work )
     GM_CurrentMap = work->map;
     FS_StreamSync();
 
-#ifdef __psyz
+#ifdef MGS_STREAM_WATCHDOG
     {
         /* Watchdog: never let a stalled stream hold the game hostage.
+         * (Off now that the virtual CD streams: a quiet stretch -- the logo
+         * sequence has few control blocks -- is not a stall, and this killed
+         * the opening's first stream after 600 frames.)
          *
          * The stage machine will not change stage while a stream is running --
          * gamed.c:588 gates on GM_StreamStatus() == -1 -- and the screen is
@@ -64,6 +67,16 @@ static void Act( StreamCtrlWork *work )
         {
             last_state = work->field_20_state;
             stuck = 0;
+        }
+        else if ( ( stuck % 120u ) == 60u && work->field_20_state == 3 )
+        {
+            /* what is state 3 waiting for? the clock, or data of type 0x10 */
+            extern int str_status;
+            int *pd = work->field_34_pStreamData;
+            printf( "[stream] waiting: tick %d target %d type %d str_status %d data %p\n",
+                    FS_StreamGetTick(), pd ? ( *pd >> 8 ) : -1, pd ? ( *pd & 0xFF ) : -1,
+                    str_status, (void *)pd );
+            ++stuck;
         }
         else if ( ++stuck > 600u )
         {

@@ -88,6 +88,17 @@ def main():
         raise SystemExit("no MGS directory on this disc")
     entries = disc.listdir(mgs[0][1], mgs[0][2])
 
+    if "--list" in sys.argv:
+        # the layout, with the gap to the next file: a file the game addresses
+        # past its recorded size (RADIO.DAT's codec codes?) shows as a gap
+        files = sorted((e for e in entries if not e[3]), key=lambda e: e[1])
+        for i, (name, lba, size, isdir) in enumerate(files):
+            nxt = files[i + 1][1] if i + 1 < len(files) else None
+            gap = (nxt - lba) * 2048 - size if nxt else -1
+            print("  %-16s lba %8d  size %12d (%7d sectors)  gap-to-next %d bytes"
+                  % (name, lba, size, (size + 2047) // 2048, gap))
+        return
+
     os.makedirs(os.path.join(outdir, "MGS"), exist_ok=True)
     for name, lba, size, isdir in entries:
         if isdir:

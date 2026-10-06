@@ -46,11 +46,28 @@ extern int Mgs_ChangeInFlight(void);   /* esp32_threads.c */
 unsigned mgs_vblank_count;
 volatile unsigned mgs_spu_irq_delivered; /* audio diagnostics */
 
+/* The SPU interrupt needs a finer clock than the vblank: the sound driver's
+ * timing voice fires it at two alternating addresses per loop (~98 Hz) and
+ * the handler itself flips the address each time, so a handler delivered
+ * 16 ms late misses the other point and the rate halves -- the driver's
+ * stream position then runs slow and the voice replays a stale buffer half.
+ * The task runs every SPU_TICK_MS and does the vblank work every
+ * VBLANK_PERIOD_MS. */
+#define SPU_TICK_MS 2
+
+static void spu_irq_deliver(void);
+
 static void vblank_tick_task(void* arg) {
     TickType_t next = xTaskGetTickCount();
+    unsigned sub = 0;
     (void)arg;
     for (;;) {
-        vTaskDelayUntil(&next, pdMS_TO_TICKS(VBLANK_PERIOD_MS));
+        vTaskDelayUntil(&next, pdMS_TO_TICKS(SPU_TICK_MS));
+        spu_irq_deliver();
+        if (++sub < (unsigned)(VBLANK_PERIOD_MS / SPU_TICK_MS)) {
+            continue;
+        }
+        sub = 0;
         mgs_vblank_count++;
 #ifdef MGS_HUNT_ROGUE_WRITER
         /* One known-corrupted pack keeps landing at the same heap address
@@ -102,29 +119,21 @@ static void vblank_tick_task(void* arg) {
              * counters go first: they are raised on the audio core by the
              * sample pull (psyz_spu.c) and their handlers are the sound
              * driver's, which touch the scheduler like the vblank's does. */
-            /* The SPU interrupt is the sound driver's clock: it counts them
-             * to know where the streaming voice is and refills the other
-             * half of its buffer in time. Delivered only at idle (a few
-             * times a second, in batches) the refill lags and the voice
-             * loops a stale half -- speech repeating itself. So it is
-             * delivered whenever the game is outside a critical section
-             * and not mid-switch, like the interrupt it emulates: the
-             * handler (sd_str.c, then mts_isend -> ChangeThFromISR) is the
-             * one the console ran from its own IRQ. */
-            if (psyz_critical_depth == 0 && !Mgs_ChangeInFlight()) {
-                extern volatile int psyz_pending_spu_irq;
-                extern void (* volatile _spu_IRQCallback)(void);
-                extern volatile unsigned mgs_spu_irq_delivered;
-                int k = psyz_pending_spu_irq;
-                if (k > 4) k = 4;
-                if (k > 0) {
-                    __atomic_fetch_sub(&psyz_pending_spu_irq, k, __ATOMIC_RELAXED);
-                    while (k-- > 0 && _spu_IRQCallback) {
-                        mgs_spu_irq_delivered++;
-                        _spu_IRQCallback();
-                    }
-                }
-            }
+            /* Order matters: the vblank first, from idle; then the SPU
+             * interrupt. Delivered the other way round, an SPU interrupt
+             * that switches the scheduler to the sound task leaves the vblank
+             * gate seeing "not idle" on most ticks (the SPU fires faster
+             * than the vblank), and the game ran at a fraction of its speed.
+             *
+             * The SPU interrupt is the sound driver's clock: it counts them to
+             * know where the streaming voice is and refills the other half
+             * of its buffer in time. Delivered only at idle (a few times a
+             * second, in batches) the refill lags and the voice loops a
+             * stale half -- speech repeating itself. So it is delivered
+             * whenever the game is outside a critical section, not mid-switch
+             * and not inside the stdio lock, like the interrupt it emulates:
+             * the handler (sd_str.c, then mts_isend -> ChangeThFromISR) is
+             * the one the console ran from its own IRQ. */
             if (psyz_critical_depth == 0 &&
                 mts_active_task_800C0DB0 == 11 /* MTS_TASK_IDLE */) {
                 extern volatile int psyz_pending_rcnt;
@@ -192,6 +201,31 @@ static void vblank_tick_task(void* arg) {
                     Mgs_ReportThreadStacks();
                 }
             }
+        }
+    }
+}
+
+/* The SPU interrupt, delivered on the game's side (see the tick task) when
+ * the game is outside a critical section, not mid-switch and not inside the
+ * stdio lock -- like the interrupt it emulates: the handler (sd_str.c, then
+ * mts_isend -> ChangeThFromISR) is the one the console ran from its own IRQ.
+ * Bounded per delivery, so a long stall does not turn into a burst. */
+static void spu_irq_deliver(void) {
+    extern volatile int psyz_critical_depth;
+    extern volatile int psyz_pending_spu_irq;
+    extern void (* volatile _spu_IRQCallback)(void);
+    extern volatile unsigned mgs_spu_irq_delivered;
+    int k;
+    if (psyz_critical_depth != 0 || Mgs_ChangeInFlight() || mgs_in_printf != 0) {
+        return;
+    }
+    k = psyz_pending_spu_irq;
+    if (k > 4) k = 4;
+    if (k > 0) {
+        __atomic_fetch_sub(&psyz_pending_spu_irq, k, __ATOMIC_RELAXED);
+        while (k-- > 0 && _spu_IRQCallback) {
+            mgs_spu_irq_delivered++;
+            _spu_IRQCallback();
         }
     }
 }

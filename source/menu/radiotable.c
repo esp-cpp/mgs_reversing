@@ -82,6 +82,9 @@ STATIC radio_table_entry* sub_80049710(radio_table *pData, int contactFrequency,
 
 void MENU_SetRadioBaseCall(int contactFrequency, int radioTableCode)
 {
+#ifdef __psyz
+    printf("[radio] base freq %d code %08X\n", contactFrequency, (unsigned)radioTableCode);
+#endif
     sub_80049710(&gRadioBaseTable_800BDAB8, contactFrequency, radioTableCode);
 }
 

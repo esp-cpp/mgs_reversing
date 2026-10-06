@@ -163,4 +163,23 @@ int Mgs_Printf(const char* fmt, ...) {
     usb_serial_jtag_write_bytes(line, n, 0);
     return n;
 }
+#elif defined(ESP_PLATFORM)
+/* The other boards keep stdio (a terminal is attached during bring-up and
+ * nothing may be dropped), wrapped so the tick knows when a thread is inside
+ * the stdio lock -- see port/mgs_printf.h. Atomic: the tick preempts the
+ * game threads on the same core. */
+#undef printf
+#include <stdarg.h>
+volatile int mgs_in_printf;
+
+int Mgs_Printf(const char* fmt, ...) {
+    va_list ap;
+    int n;
+    __atomic_fetch_add(&mgs_in_printf, 1, __ATOMIC_RELAXED);
+    va_start(ap, fmt);
+    n = vprintf(fmt, ap);
+    va_end(ap);
+    __atomic_fetch_sub(&mgs_in_printf, 1, __ATOMIC_RELAXED);
+    return n;
+}
 #endif

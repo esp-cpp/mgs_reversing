@@ -23,19 +23,26 @@
 #ifndef MGS_PRINTF_H
 #define MGS_PRINTF_H
 
-#ifdef MGS_BOARD_XIAO
+#if defined(MGS_BOARD_XIAO) || defined(ESP_PLATFORM)
 
-#include <stdarg.h>
-#include <stdio.h>
-
+/* no <stdio.h> here: libsio/dummy.c defines its own getchar() and must not
+ * see stdio's macro; the prototype needs nothing from it */
 int Mgs_Printf(const char* fmt, ...);
 
 /* The game calls printf; route it here. Undefined first because some headers
- * in this tree have their own ideas about the name. */
+ * in this tree have their own ideas about the name.
+ *
+ * On every ESP build the wrapper also counts how many callers are inside it
+ * (mgs_in_printf): stdio takes a lock, and the vblank tick must not deliver
+ * an interrupt -- which can stop the running thread where it stands -- while
+ * a thread holds that lock, or the next printf anywhere (the tick's own
+ * periodic report, the sound task's) waits for a thread that will never run
+ * again. */
 #undef printf
 #define printf Mgs_Printf
+extern volatile int mgs_in_printf;
 
-#endif /* MGS_BOARD_XIAO */
+#endif /* MGS_BOARD_XIAO || ESP_PLATFORM */
 
 /* A breadcrumb that survives a saturated console.
  *
