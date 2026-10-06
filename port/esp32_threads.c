@@ -318,11 +318,16 @@ int Mgs_ChangeInFlight(void) { return change_in_flight; }
 long ChangeThFromISR(unsigned long thread) {
     int target = (int)thread;
     static int noisy = 12;
-    if (change_in_flight) {
+    if (change_in_flight || mgs_in_printf != 0) {
         /* a cooperative ChangeTh is mid-update; preempting on a half-written
          * current_thread is how two tasks once ended up runnable. Skip this
          * frame; the caller reverts its bookkeeping and the next vblank
-         * retries. */
+         * retries.
+         *
+         * Likewise when a thread is inside printf: it holds stdio's lock, and
+         * suspending it there leaves every later printf -- the sound task's,
+         * the game's -- waiting on a thread nothing will resume. That was the
+         * black screen at the first codec call. */
         return 0;
     }
     if (target < 0 || target >= MGS_MAX_THREADS || !threads[target].in_use) {

@@ -140,7 +140,7 @@ static void vblank_tick_task(void* arg) {
              * and not inside the stdio lock, like the interrupt it emulates:
              * the handler (sd_str.c, then mts_isend -> ChangeThFromISR) is
              * the one the console ran from its own IRQ. */
-            if (psyz_critical_depth == 0 &&
+            if (psyz_critical_depth == 0 && mgs_in_printf == 0 &&
                 mts_active_task_800C0DB0 == 11 /* MTS_TASK_IDLE */) {
                 extern volatile int psyz_pending_rcnt;
                 extern void Psyz_RcntAdd(int n);
@@ -346,6 +346,11 @@ static void scanout_task(void* arg) {
 
 static int started;
 static TaskHandle_t tick_task, lcd_task;
+
+/* is the caller the vblank tick? (its prints must not take stdio's lock) */
+int Mgs_IsTickTask(void) {
+    return tick_task != NULL && xTaskGetCurrentTaskHandle() == tick_task;
+}
 
 void Mgs_StartVblank(void) {
     if (started) {

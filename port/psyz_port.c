@@ -170,11 +170,29 @@ int Mgs_Printf(const char* fmt, ...) {
  * game threads on the same core. */
 #undef printf
 #include <stdarg.h>
+#include "esp_rom_sys.h"
 volatile int mgs_in_printf;
+extern int Mgs_IsTickTask(void); /* esp32_vblank.c */
 
 int Mgs_Printf(const char* fmt, ...) {
     va_list ap;
     int n;
+    if (Mgs_IsTickTask()) {
+        /* The tick preempts the game threads and may have stopped one inside
+         * stdio's lock (ChangeThFromISR suspends a thread where it stands).
+         * Taking that lock here would then wait for a thread only the tick
+         * can wake: a deadlock seen twice as "tick stalled in 'dump'". The
+         * ROM printf writes straight to the console with no lock. Only the
+         * tick uses this buffer, so no two callers can overlap in it. */
+        static char line[512];
+        va_start(ap, fmt);
+        n = vsnprintf(line, sizeof line, fmt, ap);
+        va_end(ap);
+        if (n > 0) {
+            esp_rom_printf("%s", line);
+        }
+        return n;
+    }
     __atomic_fetch_add(&mgs_in_printf, 1, __ATOMIC_RELAXED);
     va_start(ap, fmt);
     n = vprintf(fmt, ap);
