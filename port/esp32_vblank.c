@@ -45,6 +45,9 @@ extern int Mgs_ChangeInFlight(void);   /* esp32_threads.c */
 
 unsigned mgs_vblank_count;
 volatile unsigned mgs_spu_irq_delivered; /* audio diagnostics */
+/* where the tick task is, for the hang detector: a stalled tick is a tick
+ * blocked inside one of these */
+volatile const char* mgs_tick_phase = "not started";
 
 /* The SPU interrupt needs a finer clock than the vblank: the sound driver's
  * timing voice fires it at two alternating addresses per loop (~98 Hz) and
@@ -62,13 +65,16 @@ static void vblank_tick_task(void* arg) {
     unsigned sub = 0;
     (void)arg;
     for (;;) {
+        mgs_tick_phase = "sleep";
         vTaskDelayUntil(&next, pdMS_TO_TICKS(SPU_TICK_MS));
+        mgs_tick_phase = "spu";
         spu_irq_deliver();
         if (++sub < (unsigned)(VBLANK_PERIOD_MS / SPU_TICK_MS)) {
             continue;
         }
         sub = 0;
         mgs_vblank_count++;
+        mgs_tick_phase = "pads";
 #ifdef MGS_HUNT_ROGUE_WRITER
         /* One known-corrupted pack keeps landing at the same heap address
          * every boot. Arm a store watchpoint on its command word AFTER the
@@ -139,9 +145,11 @@ static void vblank_tick_task(void* arg) {
                 extern volatile int psyz_pending_rcnt;
                 extern void Psyz_RcntAdd(int n);
                 int n = __atomic_exchange_n(&psyz_pending_rcnt, 0, __ATOMIC_RELAXED);
+                mgs_tick_phase = "rcnt";
                 if (n > 0) {
                     Psyz_RcntAdd(n);
                 }
+                mgs_tick_phase = "vsync";
                 if (g_VsyncCallback) {
                     t_fired++;
                     g_VsyncCallback();
@@ -171,9 +179,11 @@ static void vblank_tick_task(void* arg) {
 #endif
             if ((t_all % 1800u) == 0u) {
                 extern void mts_dbg_dump(void);
+                mgs_tick_phase = "dump";
                 mts_dbg_dump();
             }
             if ((t_all % 3000u) == 0u) {
+                mgs_tick_phase = "report";
                 /* mgs_where is the last MGS_WHERE breadcrumb any task set. It
                  * rides along on this line because this line is the one that
                  * still gets out when a wedged game has filled the console
