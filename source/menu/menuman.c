@@ -320,7 +320,7 @@ int MENU_Printf(const char *fmt, const char *str, int param_3, int param_4, int 
         sprintf(string_buffer, (char *)fmt, str, param_3, param_4, param_5);
         free_space = menu_prim.end - menu_prim.next;
         string_length = strlen(string_buffer);
-        if (string_length * 0x14 + 0x28U <= free_space)
+        if (string_length * sizeof(SPRT) + 2 * sizeof(SPRT) <= free_space) /* 0x14 + 0x28 on the console */
         {
             if (gMenuTextConfig_8009E2E4.flags & TextConfig_Flags_eLargeFont_10)
             {

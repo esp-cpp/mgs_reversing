@@ -16,7 +16,15 @@
 
 // clang-format off
 typedef struct {
+#ifdef __psyz
+        O_TAG;                          /* psyz: a two-word tag, like every
+                                         * other packet; the console's single
+                                         * word put code[0] where psyz keeps
+                                         * the length, and the queue dropped
+                                         * the packet and what followed */
+#else
         u_long  tag;
+#endif
         u_long  code[2];
 } DR_PRIO;                              /* Priority */
 
