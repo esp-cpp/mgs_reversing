@@ -35,6 +35,27 @@ STATIC int DG_AllocPacks( DG_OBJ *obj, int idx )
                 reported--;
                 printf("[opack] bad extend chain at %p (packs so far %d)\n",
                        (void *)object, total_packs);
+                if (prev)
+                {
+                    /* the link's owner: is its model sane, and does the
+                     * model's own index agree with the stored pointer? */
+                    const unsigned *w = (const unsigned *)prev;
+                    int k;
+                    printf("[opack]   owner obj %p model %p (in ram %d) n_packs %d",
+                           (void *)prev, (void *)prev->model,
+                           mgs_ptr_in_ram(prev->model), prev->n_packs);
+                    if (mgs_ptr_in_ram(prev->model))
+                    {
+                        printf(" model->extend %d parent %d", prev->model->extend,
+                               prev->model->parent);
+                    }
+                    printf("\n[opack]   owner words:");
+                    for (k = 0; k < 23; k++)
+                    {
+                        printf(" %08x", w[k]);
+                    }
+                    printf("\n");
+                }
             }
             /* Cut the chain here: DG_InitPolyGT4Pack and the renderers walk
              * it again without this check, and the first of them to follow

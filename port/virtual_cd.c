@@ -458,7 +458,8 @@ void CDBIOS_ReadRequest(void* buffer, unsigned int sector, unsigned int size,
 }
 
 /* deliver sectors for the outstanding request; returns 1 while incomplete */
-static volatile int cd_pump_busy; /* the game thread is inside the pump */
+volatile int mgs_cd_pump_busy; /* a pump (and so the stream callback) is in progress */
+#define cd_pump_busy mgs_cd_pump_busy
 
 static int cd_pump_n(int max_burst) {
     CDBIOS_TASK* task = &cd_bios_task_800B4E58;

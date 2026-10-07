@@ -11,6 +11,35 @@
 int str_tick_count = -1;
 char *dword_8009F7B8 = 0;
 
+#ifdef __psyz
+/* FS_StreamGetData(1) with diagnostics: when it comes back empty, say what
+ * the ring held and whether a second look finds a block after all (a race
+ * with the drive callback rewriting the ring) or the data is truly absent. */
+extern volatile int mgs_cd_pump_busy; /* port/virtual_cd.c */
+extern int mts_active_task_800C0DB0;
+static char *str_fetch(void)
+{
+    char *p = FS_StreamGetData(1);
+    if (!p)
+    {
+        static int reports = 12;
+        if (reports > 0)
+        {
+            char *again = FS_StreamGetData(1);
+            reports--;
+            printf("[str] fetch empty: tick %d pump-busy %d active %d again %p\n",
+                   FS_StreamGetTick(), mgs_cd_pump_busy, mts_active_task_800C0DB0,
+                   (void *)again);
+            if (again)
+            {
+                return again;
+            }
+        }
+    }
+    return p;
+}
+#endif
+
 void StrFadeIn(unsigned int fade_speed)
 {
     str_fadein_time = str_volume / fade_speed;
@@ -246,7 +275,7 @@ int StrSpuTransWithNoLoop(void)
                 SpuSetReverbVoice(SPU_OFF, SPU_21CH | SPU_22CH);
             }
 
-            str_data_ptr = FS_StreamGetData(1);
+            str_data_ptr = str_fetch();
 
             if (str_data_ptr)
             {
@@ -282,7 +311,7 @@ int StrSpuTransWithNoLoop(void)
             if (str_mono_fg == 0)
             {
                 dword_8009F7B8 = str_data_ptr;
-                str_data_ptr = FS_StreamGetData(1);
+                str_data_ptr = str_fetch();
 
                 if (!str_data_ptr)
                 {
@@ -328,7 +357,7 @@ int StrSpuTransWithNoLoop(void)
             SpuWrite(str_data_ptr + str_play_offset, 4096);
             str_unplay_size -= 4096;
             dword_8009F7B8 = str_data_ptr;
-            str_data_ptr = FS_StreamGetData(1);
+            str_data_ptr = str_fetch();
             str_play_offset = 0;
             dword_800BF1A4 = 0;
             result = 1;
@@ -520,7 +549,7 @@ int StrSpuTransWithNoLoop(void)
                 if (bVar1)
                 {
                     dword_8009F7B8 = str_data_ptr;
-                    str_data_ptr = FS_StreamGetData(1);
+                    str_data_ptr = str_fetch();
                     str_play_offset = 0;
                 }
             }
@@ -587,7 +616,7 @@ int StrSpuTransWithNoLoop(void)
                 if ((mute_l_r_fg == 0) && (str_next_idx != 0))
                 {
                     dword_8009F7B8 = str_data_ptr;
-                    str_data_ptr = FS_StreamGetData(1);
+                    str_data_ptr = str_fetch();
 
                     if ((str_data_ptr == NULL) && FS_StreamGetEndFlag())
                     {

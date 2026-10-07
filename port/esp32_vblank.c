@@ -50,8 +50,10 @@ volatile unsigned mgs_spu_irq_delivered; /* audio diagnostics */
  * blocked inside one of these */
 volatile const char* mgs_tick_phase = "not started";
 unsigned mgs_prof_present_us; /* core-1 time in the LCD present, for the audio report */
-unsigned mgs_spu_defer_crit, mgs_spu_defer_flight, mgs_spu_defer_printf, mgs_spu_defer_stdio;
+unsigned mgs_spu_defer_crit, mgs_spu_defer_flight, mgs_spu_defer_printf, mgs_spu_defer_stdio,
+    mgs_spu_defer_busy;
 extern unsigned mgs_cd_hits, mgs_cd_misses, mgs_cd_sd_us, mgs_cd_pumps; /* virtual_cd.c */
+extern volatile int mgs_cd_pump_busy;
 
 /* The SPU interrupt needs a finer clock than the vblank: the sound driver's
  * timing voice fires it at two alternating addresses per loop (~98 Hz) and
@@ -158,7 +160,7 @@ static void vblank_tick_task(void* arg) {
              * two idle vblanks on top of its work. The gate is the one the
              * SPU interrupt uses; ChangeThFromISR handles the preemption. */
             if (psyz_critical_depth == 0 && mgs_in_printf == 0 &&
-                !Mgs_ChangeInFlight()) {
+                !Mgs_ChangeInFlight() && !mgs_cd_pump_busy) {
                 extern volatile int psyz_pending_rcnt;
                 extern void Psyz_RcntAdd(int n);
                 int n = __atomic_exchange_n(&psyz_pending_rcnt, 0, __ATOMIC_RELAXED);
@@ -209,16 +211,16 @@ static void vblank_tick_task(void* arg) {
                 {
                     extern const char *mgs_where;
                     printf("[tick] all %u idle %u crit0 %u fired %u active %d"
-                           " | spu deferred: crit %u flight %u printf %u stdio %u"
+                           " | spu deferred: crit %u flight %u printf %u stdio %u busy %u"
                            " | cd: %u pumps, hits %u misses %u, card %u ms"
                            " | ultimo: %s\n",
                            t_all, t_idle, t_crit, t_fired,
                            mts_active_task_800C0DB0, mgs_spu_defer_crit,
                            mgs_spu_defer_flight, mgs_spu_defer_printf,
-                           mgs_spu_defer_stdio, mgs_cd_pumps, mgs_cd_hits,
+                           mgs_spu_defer_stdio, mgs_spu_defer_busy, mgs_cd_pumps, mgs_cd_hits,
                            mgs_cd_misses, mgs_cd_sd_us / 1000u, mgs_where);
                     mgs_spu_defer_crit = mgs_spu_defer_flight = 0;
-                    mgs_spu_defer_printf = mgs_spu_defer_stdio = 0;
+                    mgs_spu_defer_printf = mgs_spu_defer_stdio = mgs_spu_defer_busy = 0;
                     mgs_cd_pumps = mgs_cd_hits = mgs_cd_misses = mgs_cd_sd_us = 0;
                 }
                 {
@@ -251,8 +253,12 @@ static void spu_irq_deliver(void) {
     extern void (* volatile _spu_IRQCallback)(void);
     extern volatile unsigned mgs_spu_irq_delivered;
     int k;
-    if (psyz_critical_depth != 0 || Mgs_ChangeInFlight() || mgs_in_printf != 0) {
-        /* why was a pending interrupt not delivered this tick? */
+    if (psyz_critical_depth != 0 || Mgs_ChangeInFlight() || mgs_in_printf != 0 ||
+        mgs_cd_pump_busy) {
+        /* why was a pending interrupt not delivered this tick? (pump-busy:
+         * the drive callback is rewriting the stream ring; on the console
+         * it ran with interrupts masked, so nothing walked the ring
+         * half-moved -- here the sound task would, and fetch nothing) */
         if (psyz_pending_spu_irq > 0) {
             if (psyz_critical_depth != 0) mgs_spu_defer_crit++;
             else if (Mgs_ChangeInFlight()) mgs_spu_defer_flight++;
@@ -261,14 +267,30 @@ static void spu_irq_deliver(void) {
         return;
     }
     k = psyz_pending_spu_irq;
-    if (k > 4) k = 4;
-    if (k > 0) {
-        __atomic_fetch_sub(&psyz_pending_spu_irq, k, __ATOMIC_RELAXED);
-        while (k-- > 0 && _spu_IRQCallback) {
-            mgs_spu_irq_delivered++;
-            _spu_IRQCallback();
+    if (k <= 0 || !_spu_IRQCallback) {
+        return;
+    }
+    /* One at a time, and only when the sound task is back waiting for it.
+     *
+     * The handler advances the stream's playback position and then wakes
+     * the sound task with mts_isend -- which DROPS the wake if the task is
+     * not already receiving (overrun). Two interrupts delivered back to
+     * back (after any deferral above) therefore moved the position twice
+     * but ran the task once; the task's pass count is the cutscene clock
+     * (FS_StreamGetTick), so the picture fell behind the voice until the
+     * voice reached data not yet on the ring, went dry, and the read-error
+     * pause fired. On the console the task always finished between two
+     * interrupts; make that true here by waiting for it. */
+    {
+        extern int Mgs_MtsTaskReceivingIntr(int tasknr);
+        if (!Mgs_MtsTaskReceivingIntr(1 /* MTSID_SOUND_INT */)) {
+            mgs_spu_defer_busy++;
+            return;
         }
     }
+    __atomic_fetch_sub(&psyz_pending_spu_irq, 1, __ATOMIC_RELAXED);
+    mgs_spu_irq_delivered++;
+    _spu_IRQCallback();
 }
 
 /* The PSX scans out continuously: whatever is in VRAM reaches the screen every

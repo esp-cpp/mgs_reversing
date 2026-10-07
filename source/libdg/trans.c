@@ -416,7 +416,23 @@ void DG_TransChanl( DG_CHANL *chanl, int idx )
     for (n_objects = chanl->objs_index; n_objects > 0; n_objects--)
     {
         objs = *queue++;
-
+#ifdef __psyz
+        {
+            /* a queue entry that does not point into RAM is a stale object
+             * set; skipping it loses one object for one frame */
+            extern int mgs_ptr_in_ram(const void *);
+            static int reported = 8;
+            if (!mgs_ptr_in_ram(objs))
+            {
+                if (reported > 0)
+                {
+                    reported--;
+                    printf("[trans] bad objs %p in chanl queue\n", (void *)objs);
+                }
+                continue;
+            }
+        }
+#endif
         if (objs->bound_mode == 0)
         {
 #ifdef __psyz
@@ -443,6 +459,32 @@ void DG_TransChanl( DG_CHANL *chanl, int idx )
 #endif
 
             model = obj->model;
+#ifdef __psyz
+            {
+                extern int mgs_ptr_in_ram(const void *);
+                static int reported = 8;
+                if (!mgs_ptr_in_ram(model) ||
+                    !mgs_ptr_in_ram(&objs->objs[model->parent]))
+                {
+                    if (reported > 0)
+                    {
+                        const unsigned *w = (const unsigned *)obj;
+                        int k;
+                        reported--;
+                        printf("[trans] obj %p of objs %p: model %p parent idx %d -- skipped\n",
+                               (void *)obj, (void *)objs, (void *)model,
+                               mgs_ptr_in_ram(model) ? (int)model->parent : -1);
+                        printf("[trans]   obj words:");
+                        for (k = 0; k < 23; k++)
+                        {
+                            printf(" %08x", w[k]);
+                        }
+                        printf("\n");
+                    }
+                    continue;
+                }
+            }
+#endif
             parent = &objs->objs[model->parent];
 
 

@@ -706,6 +706,19 @@ void mts_send( int dst, unsigned char *message )
     SwExitCriticalSection();
 }
 
+#ifdef __psyz
+/* For the port's interrupt delivery: can this task take an interrupt
+ * message right now? mts_isend drops the wake (overrun++) when the task is
+ * not already receiving, and a dropped wake desynchronises the sound
+ * driver's two clocks -- see port/esp32_vblank.c, spu_irq_deliver. */
+int Mgs_MtsTaskReceivingIntr( int tasknr )
+{
+    MTS_TASK *t = &mts_tasks_800C0C30[ tasknr ];
+    return t->state == MTS_TASK_RECEIVING &&
+           ( t->src == MTS_TASK_INTR || t->src == MTS_TASK_INTR2 );
+}
+#endif
+
 int mts_isend( int dst )
 {
     MTS_TASK *to;
