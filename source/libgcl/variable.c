@@ -218,7 +218,7 @@ char *GCL_GetVar( char *top, int *type_p, int *value_p )
         ptr = (char *)&gGcl_vars_800B3CC8;
     }
     ptr += GCL_GetVarOffset(gcl_var);
-#ifdef __psyz
+#ifdef MGS_GCL_TRACE
     {
         /* which variables do scripts read, and what do they find? */
         static int budget = 400;

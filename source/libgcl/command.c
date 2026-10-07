@@ -47,7 +47,7 @@ int GCL_Command( char *ptr )
     id = GCL_GetShort( ptr );
     cl = FindCommand( id );
     ptr += sizeof(short);
-#ifdef __psyz
+#ifdef MGS_GCL_TRACE /* off by default: a burst of UART writes from the game thread */
     {
         /* which commands does a script actually run? (names: grep the hash
          * in the command tables, e.g. game/script.c) */

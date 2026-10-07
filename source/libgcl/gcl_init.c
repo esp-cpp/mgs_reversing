@@ -20,7 +20,7 @@ int SECTION(".sbss") dword_800AB994; // padding
  */
 static int GCL_InitFunc( void *top, int id )
 {
-#ifdef __psyz
+#ifdef MGS_GCL_TRACE
     printf( "[gcl] script %08X%s\n", (unsigned)id, id == scenerio_code ? " (selected)" : "" );
 #endif
     if ( id == scenerio_code )
