@@ -247,12 +247,15 @@ STATIC void DG_BoundObjs(DG_OBJS *objs, int idx, unsigned int flag, int in_bound
                          * eight projected Z values were all zero. Show them --
                          * if the depth FIFO is not being filled, every model
                          * disappears and characters lose their parts. */
-                        static int b = 4;
+                        static int b = 24;
                         if (b > 0)
                         {
                             long *z = (long *)(SCRPAD_ADDR + 0x6C);
                             b--;
-                            printf("[zcull] bbox %d..%d,%d..%d z:", a2, a3,
+                            printf("[zcull] obj %p world %d,%d,%d view %d,%d,%d bbox %d..%d,%d..%d z:",
+                                   (void *)obj, (int)obj->world.t[0], (int)obj->world.t[1],
+                                   (int)obj->world.t[2], (int)obj->screen.t[0],
+                                   (int)obj->screen.t[1], (int)obj->screen.t[2], a2, a3,
                                    t0, t1);
                             for (i3 = 0; i3 < 8; i3++)
                             {

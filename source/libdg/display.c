@@ -172,6 +172,15 @@ void DG_SwapFrame(void)
                        GM_Camera.position.vx, GM_Camera.position.vy,
                        GM_Camera.position.vz, GM_Camera.target.vx,
                        GM_Camera.target.vy, GM_Camera.target.vz);
+                {
+                    extern GM_CameraSystemWork gUnkCameraStruct2_800B7868;
+                    extern DG_CHANL DG_Chanls[];
+                    printf("[demo-cam] eye %d,%d,%d center %d,%d,%d clip_dist %d\n",
+                           gUnkCameraStruct2_800B7868.position.vx, gUnkCameraStruct2_800B7868.position.vy,
+                           gUnkCameraStruct2_800B7868.position.vz, gUnkCameraStruct2_800B7868.target.vx,
+                           gUnkCameraStruct2_800B7868.target.vy, gUnkCameraStruct2_800B7868.target.vz,
+                           DG_Chanls[0].clip_distance);
+                }
             }
             mgs_dbg_cull_sat = 0; mgs_dbg_cull_off = 0;
             mgs_dbg_objs_seen = 0; mgs_dbg_objs_culled = 0;

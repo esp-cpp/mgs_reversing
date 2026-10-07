@@ -503,6 +503,27 @@ BOOL FrameRunDemo(LPMGSDEMOACT lpAct, DMO_DAT *data)
 
     DG_Chanl(0)->clip_distance = data->clip_dist;
 
+#ifdef __psyz
+    {
+        /* In 32 bits. The eye and the target are 16-bit in the data, but
+         * their difference is not: the submarine passing the dock in the
+         * opening has the target 33614 units away in z, which wraps a short
+         * to +31922 and turns the camera 180 degrees -- it stared into the
+         * water for the whole shot while the sub went by behind it. */
+        VECTOR d;
+        d.vx = data->center_x - data->eye_x;
+        d.vy = data->center_y - data->eye_y;
+        d.vz = data->center_z - data->eye_z;
+        diff.vx = (short)d.vx;
+        diff.vy = (short)d.vy;
+        diff.vz = (short)d.vz;
+
+        radius = SquareRoot0(d.vx * d.vx + d.vz * d.vz);
+        rot.vx = -ratan2(d.vy, radius);
+        rot.vy = ratan2(d.vx, d.vz);
+        rot.vz = 2048;
+    }
+#else
     diff.vx = data->center_x - data->eye_x;
     diff.vy = data->center_y - data->eye_y;
     diff.vz = data->center_z - data->eye_z;
@@ -511,6 +532,21 @@ BOOL FrameRunDemo(LPMGSDEMOACT lpAct, DMO_DAT *data)
     rot.vx = -ratan2(diff.vy, radius);
     rot.vy = ratan2(diff.vx, diff.vz);
     rot.vz = 2048;
+#endif
+#ifdef __psyz
+    {
+        /* the shot's camera, a few times a second: is the orientation the
+         * data asks for the one the matrix ends up with? */
+        static int beat;
+        if ((++beat % 120) == 0)
+        {
+            printf("[demo-cam] eye %d,%d,%d center %d,%d,%d diff %d,%d,%d radius %d rot %d,%d roll %d H %d\n",
+                   data->eye_x, data->eye_y, data->eye_z, data->center_x, data->center_y,
+                   data->center_z, diff.vx, diff.vy, diff.vz, radius, rot.vx, rot.vy,
+                   data->roll, data->clip_dist);
+        }
+    }
+#endif
 
     diff.vx = data->eye_x;
     diff.vy = data->eye_y;
