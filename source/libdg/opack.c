@@ -10,6 +10,9 @@ STATIC int DG_AllocPacks( DG_OBJ *obj, int idx )
 {
     int     total_packs = 0;
     DG_OBJ *object = obj;
+#ifdef __psyz
+    DG_OBJ *prev = NULL;
+#endif
 
     while (object)
     {
@@ -33,8 +36,16 @@ STATIC int DG_AllocPacks( DG_OBJ *obj, int idx )
                 printf("[opack] bad extend chain at %p (packs so far %d)\n",
                        (void *)object, total_packs);
             }
+            /* Cut the chain here: DG_InitPolyGT4Pack and the renderers walk
+             * it again without this check, and the first of them to follow
+             * the bad link faulted (topside, after the Hind cutscene). */
+            if (prev)
+            {
+                prev->extend = NULL;
+            }
             break;
         }
+        prev = object;
 #endif
         total_packs += object->n_packs;
         object = object->extend;

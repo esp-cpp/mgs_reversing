@@ -528,6 +528,20 @@ int StrSpuTransWithNoLoop(void)
             {
                 str_mute_fg = 1;
                 printf("*");
+#ifdef __psyz
+                {
+                    /* what is in the ring when the voice runs dry? */
+                    static int dumps = 4;
+                    if (dumps > 0)
+                    {
+                        extern void FS_StreamDump(void);
+                        extern int CDBIOS_TaskState(void);
+                        dumps--;
+                        printf("[str] dry: cd state %d\n", CDBIOS_TaskState());
+                        FS_StreamDump();
+                    }
+                }
+#endif
 
                 if (dword_800BF270 >= 4096u)
                 {

@@ -70,6 +70,8 @@ extern void Mgs_DataPath(const char* name, char* out, unsigned n);
  * needs nothing. */
 extern void Mgs_SpiBusTake(void);
 extern void Mgs_SpiBusGive(void);
+static void pf_start(void);    /* read-ahead task, defined with cd_fetch below */
+static void pf_shutdown(void);
 /* Where the card keeps the disc files. The S3 boards mount at /sd; another
  * platform layer overrides this with its own mount point. */
 __attribute__((weak)) const char* Mgs_SdRoot(void) { return "/sd/MGS"; }
@@ -140,6 +142,7 @@ void Mgs_CdInit(void) {
 
 /* Release everything Mgs_CdInit() opened, so the game can be started again. */
 void Mgs_CdDeinit(void) {
+    pf_shutdown();
     int i;
     for (i = 0; i < FS_MAX_FILEID; i++) {
         if (cd_files[i]) { fclose(cd_files[i]); cd_files[i] = NULL; }
@@ -184,12 +187,192 @@ static int cd_last_result;
 
 int CDBIOS_Reset(void) {
     cd_open_all();
+    pf_start();
     return 0;
 }
 
 /* Copy one sector's worth of words out of the virtual disc.
  * Returns 0 when the request falls past the end of the file. */
+/* Read-ahead.
+ *
+ * A console drive streams on its own; this one is pumped from the game thread
+ * and every sector came straight off the card, 2 KB at a time, with the game
+ * stopped for the duration. A cutscene at full speed wants ~150 sectors a
+ * second, and the card's latency per call turned that into the game thread
+ * spending much of each frame inside fread -- seen as the picture freezing in
+ * bursts while the streamed voice ran dry and raised the read-error pause.
+ *
+ * So a task on the other core reads ahead along the current request, in
+ * chunks, into a ring in PSRAM; the pump then copies out of the ring. A miss
+ * (a seek: a new stream, a stage load jump) reads directly and re-aims the
+ * ring. The in-RAM files (cd_data) never needed this and bypass it. */
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "freertos/idf_additions.h"
+
+#define PF_SECTORS 192 /* 384 KB: about a second of stream at 2x speed */
+#define PF_CHUNK 16    /* sectors per card read */
+
+static unsigned char* pf_buf;
+static unsigned pf_base;  /* sector number held in slot pf_head */
+static unsigned pf_head;  /* ring slot of pf_base */
+static unsigned pf_count; /* valid sectors from pf_base */
+static volatile int pf_stop;
+static SemaphoreHandle_t pf_lock; /* ring bookkeeping */
+static SemaphoreHandle_t sd_lock; /* the FILE streams: one reader at a time */
+static TaskHandle_t pf_task;
+unsigned mgs_cd_hits, mgs_cd_misses, mgs_cd_sd_us, mgs_cd_pumps; /* tick report */
+
+static int cd_fetch_sd(void* dst, unsigned sector, unsigned words);
+
+/* n whole sectors from the card into dst; returns how many were read (fewer
+ * at the file's end, 0 past it or on error) */
+static int cd_read_sd_run(unsigned char* dst, unsigned sector, int n) {
+    unsigned slot = sector / SLOT_SECTORS;
+    long offset = (long)(sector % SLOT_SECTORS) * CD_SECTOR;
+    long avail;
+    int ok = 1;
+    if (slot >= FS_MAX_FILEID || !cd_files[slot] || offset >= cd_sizes[slot]) {
+        return 0;
+    }
+    avail = (cd_sizes[slot] - offset + CD_SECTOR - 1) / CD_SECTOR;
+    if (n > avail) {
+        n = (int)avail;
+    }
+    xSemaphoreTake(sd_lock, portMAX_DELAY);
+    {
+        extern long long esp_timer_get_time(void);
+        long long t0 = esp_timer_get_time();
+        size_t want = (size_t)n * CD_SECTOR;
+        if (offset + (long)want > cd_sizes[slot]) {
+            want = (size_t)(cd_sizes[slot] - offset);
+            memset(dst + want, 0, (size_t)n * CD_SECTOR - want);
+        }
+        if (cd_pos[slot] != offset) {
+            ok = fseek(cd_files[slot], offset, SEEK_SET) == 0;
+            cd_pos[slot] = ok ? offset : -1;
+        }
+        if (ok) {
+            ok = fread(dst, 1, want, cd_files[slot]) == want;
+            cd_pos[slot] = ok ? offset + (long)want : -1;
+        }
+        mgs_cd_sd_us += (unsigned)(esp_timer_get_time() - t0);
+    }
+    xSemaphoreGive(sd_lock);
+    return ok ? n : 0;
+}
+
+static void pf_task_main(void* arg) {
+    (void)arg;
+    while (!pf_stop) {
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+        for (;;) {
+            unsigned next, slot;
+            int n;
+            if (pf_stop) {
+                break;
+            }
+            xSemaphoreTake(pf_lock, portMAX_DELAY);
+            if (pf_count + PF_CHUNK > PF_SECTORS) {
+                xSemaphoreGive(pf_lock);
+                break;
+            }
+            next = pf_base + pf_count;
+            slot = (pf_head + pf_count) % PF_SECTORS;
+            xSemaphoreGive(pf_lock);
+            n = PF_CHUNK;
+            if (slot + n > PF_SECTORS) {
+                n = (int)(PF_SECTORS - slot); /* no wrapping inside one read */
+            }
+            n = cd_read_sd_run(pf_buf + (size_t)slot * CD_SECTOR, next, n);
+            if (n <= 0) {
+                break; /* end of file, or nothing to follow */
+            }
+            xSemaphoreTake(pf_lock, portMAX_DELAY);
+            if (pf_base + pf_count == next) { /* ring not re-aimed meanwhile */
+                pf_count += (unsigned)n;
+            }
+            xSemaphoreGive(pf_lock);
+        }
+    }
+    pf_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static void pf_start(void) {
+    if (pf_task) {
+        return;
+    }
+    if (!pf_buf) {
+        pf_buf = heap_caps_malloc((size_t)PF_SECTORS * CD_SECTOR, MALLOC_CAP_SPIRAM);
+    }
+    if (!pf_lock) pf_lock = xSemaphoreCreateMutex();
+    if (!sd_lock) sd_lock = xSemaphoreCreateMutex();
+    if (!pf_buf || !pf_lock || !sd_lock) {
+        printf("[vcd] no read-ahead (allocation failed)\n");
+        return;
+    }
+    pf_base = pf_head = pf_count = 0;
+    pf_stop = 0;
+    if (xTaskCreatePinnedToCoreWithCaps(pf_task_main, "vcd_prefetch", 4096, NULL, 5,
+                                        &pf_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+        pf_task = NULL;
+        printf("[vcd] no read-ahead (task failed)\n");
+        return;
+    }
+    printf("[vcd] read-ahead on core 1: %d sectors, %d per read\n", PF_SECTORS, PF_CHUNK);
+}
+
+static void pf_shutdown(void) {
+    if (pf_task) {
+        pf_stop = 1;
+        xTaskNotifyGive(pf_task);
+        while (pf_task) {
+            vTaskDelay(1);
+        }
+    }
+    if (pf_buf) {
+        heap_caps_free(pf_buf);
+        pf_buf = NULL;
+    }
+    if (pf_lock) { vSemaphoreDelete(pf_lock); pf_lock = NULL; }
+    if (sd_lock) { vSemaphoreDelete(sd_lock); sd_lock = NULL; }
+}
+
 static int cd_fetch(void* dst, unsigned sector, unsigned words) {
+    unsigned slot = sector / SLOT_SECTORS;
+    if (pf_task && slot < FS_MAX_FILEID && !cd_data[slot]) {
+        int hit = 0;
+        xSemaphoreTake(pf_lock, portMAX_DELAY);
+        if (pf_count && sector >= pf_base && sector < pf_base + pf_count) {
+            unsigned adv = sector - pf_base + 1;
+            unsigned at = (pf_head + (sector - pf_base)) % PF_SECTORS;
+            memcpy(dst, pf_buf + (size_t)at * CD_SECTOR, (size_t)words * 4u);
+            pf_head = (pf_head + adv) % PF_SECTORS;
+            pf_base = sector + 1;
+            pf_count -= adv;
+            hit = 1;
+        } else {
+            /* re-aim the ring just past this sector; the task refills */
+            pf_base = sector + 1;
+            pf_head = 0;
+            pf_count = 0;
+        }
+        xSemaphoreGive(pf_lock);
+        xTaskNotifyGive(pf_task);
+        if (hit) {
+            mgs_cd_hits++;
+            return 1;
+        }
+        mgs_cd_misses++;
+    }
+    return cd_fetch_sd(dst, sector, words);
+}
+
+/* Copy one sector's worth of words out of the virtual disc, straight from the
+ * copy or the card. Returns 0 when the request falls past the end of the file. */
+static int cd_fetch_sd(void* dst, unsigned sector, unsigned words) {
     unsigned slot = sector / SLOT_SECTORS;
     long offset = (long)(sector % SLOT_SECTORS) * CD_SECTOR;
     unsigned bytes = words * 4u;
@@ -206,6 +389,9 @@ static int cd_fetch(void* dst, unsigned sector, unsigned words) {
         memcpy(dst, cd_data[slot] + offset, bytes);
     } else if (cd_files[slot]) {
         int ok;
+        extern long long esp_timer_get_time(void);
+        long long t0 = esp_timer_get_time();
+        if (sd_lock) xSemaphoreTake(sd_lock, portMAX_DELAY);
         Mgs_SpiBusTake();
         /* Seek only when the read is not already where we left off.
          *
@@ -225,6 +411,8 @@ static int cd_fetch(void* dst, unsigned sector, unsigned words) {
             cd_pos[slot] = ok ? offset + (long)bytes : -1;
         }
         Mgs_SpiBusGive();
+        if (sd_lock) xSemaphoreGive(sd_lock);
+        mgs_cd_sd_us += (unsigned)(esp_timer_get_time() - t0);
         if (!ok) {
             return 0;
         }
@@ -270,7 +458,9 @@ void CDBIOS_ReadRequest(void* buffer, unsigned int sector, unsigned int size,
 }
 
 /* deliver sectors for the outstanding request; returns 1 while incomplete */
-static int cd_pump(void) {
+static volatile int cd_pump_busy; /* the game thread is inside the pump */
+
+static int cd_pump_n(int max_burst) {
     CDBIOS_TASK* task = &cd_bios_task_800B4E58;
     int burst;
 
@@ -278,6 +468,8 @@ static int cd_pump(void) {
     if (task->state != CDBIOS_STATE_READ) {
         return 0;
     }
+    mgs_cd_pumps++;
+    cd_pump_busy = 1;
 
     /* A sector out of PSRAM is a memcpy, so the whole request can be delivered
      * in one poll and the early-stops below do the real pacing. A sector off
@@ -294,6 +486,9 @@ static int cd_pump(void) {
         unsigned slot = (unsigned)task->sector / SLOT_SECTORS;
         int from_file = slot < FS_MAX_FILEID && cd_data[slot] == 0;
         burst = from_file ? 128 : 512;
+        if (max_burst > 0 && burst > max_burst) {
+            burst = max_burst;
+        }
     }
     if (pump_log > 0) {
         pump_log--;
@@ -334,6 +529,24 @@ static int cd_pump(void) {
         return 0;
     }
     return 1;
+}
+
+static int cd_pump(void) {
+    int r = cd_pump_n(0);
+    cd_pump_busy = 0;
+    return r;
+}
+
+/* From the vblank tick, each vblank: keep the stream ring fed the way the
+ * console's drive interrupt did, independent of how often the game's own
+ * stream actor gets to run. Streams only, never re-entrant, small bites. */
+void Mgs_CdPumpFromTick(void) {
+    extern int FS_StreamOwnsCdTask(void);
+    if (cd_pump_busy || !FS_StreamOwnsCdTask()) {
+        return;
+    }
+    cd_pump_n(16);
+    cd_pump_busy = 0;
 }
 
 int CDBIOS_ReadSync(void) {

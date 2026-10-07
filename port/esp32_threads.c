@@ -354,10 +354,14 @@ long ChangeThFromISR(unsigned long thread) {
     int target = (int)thread;
     static int noisy = 12;
     extern int Mgs_TaskInStdio(void* task);
-    if (change_in_flight || mgs_in_printf != 0 ||
-        (current_thread >= 0 && current_thread < MGS_MAX_THREADS &&
-         threads[current_thread].handle &&
-         Mgs_TaskInStdio(threads[current_thread].handle))) {
+    extern unsigned mgs_spu_defer_stdio;
+    if (change_in_flight || mgs_in_printf != 0) {
+        return 0;
+    }
+    if (current_thread >= 0 && current_thread < MGS_MAX_THREADS &&
+        threads[current_thread].handle &&
+        Mgs_TaskInStdio(threads[current_thread].handle)) {
+        mgs_spu_defer_stdio++;
         /* a cooperative ChangeTh is mid-update; preempting on a half-written
          * current_thread is how two tasks once ended up runnable. Skip this
          * frame; the caller reverts its bookkeeping and the next vblank

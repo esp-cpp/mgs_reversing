@@ -583,3 +583,15 @@ int FS_StreamGetTick( void )
 
     return now - fs_stream_last_time;
 }
+
+#ifdef __psyz
+/* Is the CD BIOS currently serving the stream? The port pumps the virtual
+ * drive from its vblank tick -- the console's drive interrupt, in effect --
+ * but only for the stream: a stage load's callback is heavier and stays on
+ * the loader's own thread. */
+extern CDBIOS_TASK cd_bios_task_800B4E58;
+int FS_StreamOwnsCdTask( void )
+{
+    return cd_bios_task_800B4E58.callback == StreamReadyCallback;
+}
+#endif

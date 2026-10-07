@@ -265,6 +265,15 @@ void DG_SwapFrame(void)
 #ifdef __psyz
         { static int b = 3; if (b > 0) { b--; printf("[swap] branch DRAW\n"); } }
 #endif
+#ifdef __psyz
+        /* The rasterizer runs on the other core: the buffer about to be shown
+         * was handed to it a frame ago and may still be in progress. The
+         * console's hikituri check covered this; here, wait -- and only then
+         * point the display at it: the scanout task reads g_dispenv on its
+         * own clock, and pointing it at a half-drawn buffer first showed as
+         * flicker. */
+        DrawSync(0);
+#endif
         p->disp.x = gClipHeights_800AB960[activeBuffer];
 
         PutDispEnv(&g_dispenv);

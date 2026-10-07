@@ -33,6 +33,7 @@
 
 extern void (*g_VsyncCallback)(void);   /* psyz/src/psyz/libetc.c */
 extern int Mgs_ChangeInFlight(void);   /* esp32_threads.c */
+extern volatile int psyz_critical_depth; /* psyz libapi.c: the running task's "SR" */
 
 /* NTSC field rate. The tick is 1 ms, so 16 ms is the closest whole number;
  * that is 62.5 Hz rather than 59.94, which is near enough for pacing and can
@@ -48,6 +49,9 @@ volatile unsigned mgs_spu_irq_delivered; /* audio diagnostics */
 /* where the tick task is, for the hang detector: a stalled tick is a tick
  * blocked inside one of these */
 volatile const char* mgs_tick_phase = "not started";
+unsigned mgs_prof_present_us; /* core-1 time in the LCD present, for the audio report */
+unsigned mgs_spu_defer_crit, mgs_spu_defer_flight, mgs_spu_defer_printf, mgs_spu_defer_stdio;
+extern unsigned mgs_cd_hits, mgs_cd_misses, mgs_cd_sd_us, mgs_cd_pumps; /* virtual_cd.c */
 
 /* The SPU interrupt needs a finer clock than the vblank: the sound driver's
  * timing voice fires it at two alternating addresses per loop (~98 Hz) and
@@ -74,6 +78,11 @@ static void vblank_tick_task(void* arg) {
         }
         sub = 0;
         mgs_vblank_count++;
+        mgs_tick_phase = "cd";
+        if (psyz_critical_depth == 0 && !Mgs_ChangeInFlight() && mgs_in_printf == 0) {
+            extern void Mgs_CdPumpFromTick(void);
+            Mgs_CdPumpFromTick();
+        }
         mgs_tick_phase = "pads";
 #ifdef MGS_HUNT_ROGUE_WRITER
         /* One known-corrupted pack keeps landing at the same heap address
@@ -140,8 +149,16 @@ static void vblank_tick_task(void* arg) {
              * and not inside the stdio lock, like the interrupt it emulates:
              * the handler (sd_str.c, then mts_isend -> ChangeThFromISR) is
              * the one the console ran from its own IRQ. */
+            /* Every vblank, not only at idle. Delivered only when the game
+             * was idle, the vsync count -- which IS game time: mts_wait_vbl,
+             * the cutscene clock -- ran at the fraction of real time the
+             * game spent idle, while the streamed voice (clocked by the SPU
+             * interrupt, real time) ran a second ahead of the pictures and
+             * went dry at every heavy scene. It also made each frame pay
+             * two idle vblanks on top of its work. The gate is the one the
+             * SPU interrupt uses; ChangeThFromISR handles the preemption. */
             if (psyz_critical_depth == 0 && mgs_in_printf == 0 &&
-                mts_active_task_800C0DB0 == 11 /* MTS_TASK_IDLE */) {
+                !Mgs_ChangeInFlight()) {
                 extern volatile int psyz_pending_rcnt;
                 extern void Psyz_RcntAdd(int n);
                 int n = __atomic_exchange_n(&psyz_pending_rcnt, 0, __ATOMIC_RELAXED);
@@ -192,9 +209,17 @@ static void vblank_tick_task(void* arg) {
                 {
                     extern const char *mgs_where;
                     printf("[tick] all %u idle %u crit0 %u fired %u active %d"
+                           " | spu deferred: crit %u flight %u printf %u stdio %u"
+                           " | cd: %u pumps, hits %u misses %u, card %u ms"
                            " | ultimo: %s\n",
                            t_all, t_idle, t_crit, t_fired,
-                           mts_active_task_800C0DB0, mgs_where);
+                           mts_active_task_800C0DB0, mgs_spu_defer_crit,
+                           mgs_spu_defer_flight, mgs_spu_defer_printf,
+                           mgs_spu_defer_stdio, mgs_cd_pumps, mgs_cd_hits,
+                           mgs_cd_misses, mgs_cd_sd_us / 1000u, mgs_where);
+                    mgs_spu_defer_crit = mgs_spu_defer_flight = 0;
+                    mgs_spu_defer_printf = mgs_spu_defer_stdio = 0;
+                    mgs_cd_pumps = mgs_cd_hits = mgs_cd_misses = mgs_cd_sd_us = 0;
                 }
                 {
                     /* How much of each 20 KB mts stack is actually used?
@@ -227,6 +252,12 @@ static void spu_irq_deliver(void) {
     extern volatile unsigned mgs_spu_irq_delivered;
     int k;
     if (psyz_critical_depth != 0 || Mgs_ChangeInFlight() || mgs_in_printf != 0) {
+        /* why was a pending interrupt not delivered this tick? */
+        if (psyz_pending_spu_irq > 0) {
+            if (psyz_critical_depth != 0) mgs_spu_defer_crit++;
+            else if (Mgs_ChangeInFlight()) mgs_spu_defer_flight++;
+            else mgs_spu_defer_printf++;
+        }
         return;
     }
     k = psyz_pending_spu_irq;
@@ -284,8 +315,13 @@ static void scanout_task(void* arg) {
         }
         last_seq = mgs_frame_seq;
         idle_ms = 0;
-        lcd_present(&g_RawVram[(unsigned)g_dispenv.disp.y * 1024u +
-                               (unsigned)g_dispenv.disp.x]);
+        {
+            extern long long esp_timer_get_time(void);
+            long long t0 = esp_timer_get_time();
+            lcd_present(&g_RawVram[(unsigned)g_dispenv.disp.y * 1024u +
+                                   (unsigned)g_dispenv.disp.x]);
+            mgs_prof_present_us += (unsigned)(esp_timer_get_time() - t0);
+        }
 
 #ifdef MGS_VRAM_MAP
         /* Did the game DRAW, and is anything IN the window we scan out?
@@ -357,6 +393,12 @@ void Mgs_StartVblank(void) {
         return;
     }
     started = 1;
+    {
+        /* the rasterizer on core 1, so a frame costs the longer of game
+         * logic and drawing instead of their sum */
+        extern void Psyz_GpuWorkerStart(void);
+        Psyz_GpuWorkerStart();
+    }
     if (xTaskCreatePinnedToCore(vblank_tick_task, "mgs_vbl", 4096, NULL,
                                 VBLANK_TICK_PRIO, &tick_task, 0) != pdPASS) {
         printf("[vblank] could not start the tick task\n");
@@ -386,7 +428,9 @@ void Mgs_ResumeVblank(void) {
 }
 
 void Mgs_StopVblank(void) {
+    extern void Psyz_GpuWorkerStop(void);
     if (tick_task) { vTaskDelete(tick_task); tick_task = NULL; }
+    Psyz_GpuWorkerStop(); /* finishes its batch first; needs no tick */
     if (lcd_task) { vTaskDelete(lcd_task); lcd_task = NULL; }
     started = 0;
 }
