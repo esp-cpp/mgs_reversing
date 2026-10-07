@@ -28,6 +28,9 @@
 /* no <stdio.h> here: libsio/dummy.c defines its own getchar() and must not
  * see stdio's macro; the prototype needs nothing from it */
 int Mgs_Printf(const char* fmt, ...);
+/* the va_list form, for the game's own printf shims (mts_printf, fprintf)
+ * which must not reach stdio behind the wrapper's back */
+int Mgs_Vprintf(const char* fmt, __builtin_va_list ap);
 
 /* The game calls printf; route it here. Undefined first because some headers
  * in this tree have their own ideas about the name.

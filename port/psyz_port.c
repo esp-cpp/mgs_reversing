@@ -147,20 +147,26 @@ const char *mgs_where = "(nada)";
 #include <stdarg.h>
 #include "driver/usb_serial_jtag.h"
 
-int Mgs_Printf(const char* fmt, ...) {
+int Mgs_Vprintf(const char* fmt, va_list ap) {
     /* One shared buffer, and that is deliberate: this is called from several
      * mts tasks, but they are cooperative and run one at a time on core 0, so
      * they cannot interleave inside it. A per-call stack buffer would be
      * 512 bytes of the mts stacks, which are the scarcest memory here. */
     static char line[512];
-    va_list ap;
-    va_start(ap, fmt);
     int n = vsnprintf(line, sizeof line, fmt, ap);
-    va_end(ap);
     if (n <= 0) return n;
     if (n > (int)sizeof line - 1) n = (int)sizeof line - 1;
     /* Zero timeout: write what fits, drop the rest, never wait. */
     usb_serial_jtag_write_bytes(line, n, 0);
+    return n;
+}
+
+int Mgs_Printf(const char* fmt, ...) {
+    va_list ap;
+    int n;
+    va_start(ap, fmt);
+    n = Mgs_Vprintf(fmt, ap);
+    va_end(ap);
     return n;
 }
 #elif defined(ESP_PLATFORM)
@@ -170,12 +176,31 @@ int Mgs_Printf(const char* fmt, ...) {
  * game threads on the same core. */
 #undef printf
 #include <stdarg.h>
+#include <stdio.h>
 #include "esp_rom_sys.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 volatile int mgs_in_printf;
 extern int Mgs_IsTickTask(void); /* esp32_vblank.c */
 
-int Mgs_Printf(const char* fmt, ...) {
-    va_list ap;
+/* Does this task hold stdout's (or stderr's) stream lock right now? The
+ * counter above covers prints that go through this file; this covers the
+ * rest, straight from the lock itself (ESP-IDF stores the FreeRTOS mutex
+ * handle in the FILE's _lock field, created lazily on first use). */
+int Mgs_TaskInStdio(void* task) {
+    FILE* streams[2] = { stdout, stderr };
+    int i;
+    for (i = 0; i < 2; i++) {
+        SemaphoreHandle_t h = (SemaphoreHandle_t)streams[i]->lock; /* picolibc: struct __file.lock */
+        if (h && xSemaphoreGetMutexHolder(h) == (TaskHandle_t)task) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int Mgs_Vprintf(const char* fmt, va_list ap) {
     int n;
     if (Mgs_IsTickTask()) {
         /* The tick preempts the game threads and may have stopped one inside
@@ -185,19 +210,24 @@ int Mgs_Printf(const char* fmt, ...) {
          * ROM printf writes straight to the console with no lock. Only the
          * tick uses this buffer, so no two callers can overlap in it. */
         static char line[512];
-        va_start(ap, fmt);
         n = vsnprintf(line, sizeof line, fmt, ap);
-        va_end(ap);
         if (n > 0) {
             esp_rom_printf("%s", line);
         }
         return n;
     }
     __atomic_fetch_add(&mgs_in_printf, 1, __ATOMIC_RELAXED);
-    va_start(ap, fmt);
     n = vprintf(fmt, ap);
-    va_end(ap);
     __atomic_fetch_sub(&mgs_in_printf, 1, __ATOMIC_RELAXED);
+    return n;
+}
+
+int Mgs_Printf(const char* fmt, ...) {
+    va_list ap;
+    int n;
+    va_start(ap, fmt);
+    n = Mgs_Vprintf(fmt, ap);
+    va_end(ap);
     return n;
 }
 #endif

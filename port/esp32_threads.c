@@ -303,6 +303,41 @@ long ChangeTh(unsigned long thread) {
 
 /* the scheduler asks who is running */
 int Mgs_CurrentThread(void) { return current_thread; }
+
+/* For the hang detector: where a PSX thread's task last stopped. A preempted
+ * or parked task has its full register frame on its own stack and the TCB's
+ * first word points at it (pxTopOfStack); the frame starts mepc, ra, sp.
+ * Returns the FreeRTOS task state, or -1 when the slot is empty. */
+int Mgs_ThreadSample(int i, unsigned* pc, unsigned* ra, unsigned* sp) {
+    if (i < 0 || i >= MGS_MAX_THREADS || !threads[i].in_use || !threads[i].handle) {
+        return -1;
+    }
+    {
+        unsigned* top = *(unsigned**)threads[i].handle;
+        *pc = top[0];
+        *ra = top[1];
+        *sp = top[2];
+    }
+    return (int)eTaskGetState(threads[i].handle);
+}
+
+/* Words above a thread's saved stack pointer that look like code addresses:
+ * a return-address scan standing in for a backtrace (no frame pointers). */
+int Mgs_ThreadStackScan(int i, unsigned* out, int max) {
+    unsigned *top, *p;
+    int n = 0, k;
+    if (i < 0 || i >= MGS_MAX_THREADS || !threads[i].in_use || !threads[i].handle) {
+        return 0;
+    }
+    top = *(unsigned**)threads[i].handle;
+    for (p = top, k = 0; k < 1536 && n < max; k++, p++) {
+        unsigned v = *p;
+        if ((v >= 0x48000000u && v < 0x4C000000u) || (v >= 0x4FF00000u && v < 0x4FFC0000u)) {
+            out[n++] = v;
+        }
+    }
+    return n;
+}
 /* is a cooperative switch half-done? (the tick must not deliver then) */
 int Mgs_ChangeInFlight(void) { return change_in_flight; }
 
@@ -318,7 +353,11 @@ int Mgs_ChangeInFlight(void) { return change_in_flight; }
 long ChangeThFromISR(unsigned long thread) {
     int target = (int)thread;
     static int noisy = 12;
-    if (change_in_flight || mgs_in_printf != 0) {
+    extern int Mgs_TaskInStdio(void* task);
+    if (change_in_flight || mgs_in_printf != 0 ||
+        (current_thread >= 0 && current_thread < MGS_MAX_THREADS &&
+         threads[current_thread].handle &&
+         Mgs_TaskInStdio(threads[current_thread].handle))) {
         /* a cooperative ChangeTh is mid-update; preempting on a half-written
          * current_thread is how two tasks once ended up runnable. Skip this
          * frame; the caller reverts its bookkeeping and the next vblank

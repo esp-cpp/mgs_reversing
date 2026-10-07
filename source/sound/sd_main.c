@@ -130,15 +130,19 @@ void SdInt(void)
         mts_receive(MTS_TASK_INTR, NULL);
         MGS_WHERE("SdInt: interrupt received");
         IntSdMain();
+        MGS_WHERE("SdInt: IntSdMain done");
         if (SpuIsTransferCompleted(SPU_TRANSFER_PEEK) == 1)
         {
             WaveSpuTrans();
+            MGS_WHERE("SdInt: WaveSpuTrans done");
             mts_wup_tsk(MTSID_SOUND_MAIN);
         }
         StrFadeInt();
+        MGS_WHERE("SdInt: StrFadeInt done");
         if (SpuIsTransferCompleted(SPU_TRANSFER_PEEK) == 1)
         {
             StrSpuTrans();
+            MGS_WHERE("SdInt: StrSpuTrans done");
             mts_wup_tsk(MTSID_SOUND_MAIN);
         }
     }

@@ -1665,7 +1665,11 @@ int fprintf(int stream, const char *format, ...)
     int n;
     (void)stream;
     va_start(ap, format);
+#if defined(ESP_PLATFORM) || defined(MGS_BOARD_XIAO)
+    n = Mgs_Vprintf(format, ap); /* counted: the tick must not stop us inside stdio */
+#else
     n = vprintf(format, ap);
+#endif
     va_end(ap);
     return n;
 #else
@@ -1686,7 +1690,11 @@ int mts_printf(const char *format, ...)
     va_list ap;
     int n;
     va_start(ap, format);
+#if defined(ESP_PLATFORM) || defined(MGS_BOARD_XIAO)
+    n = Mgs_Vprintf(format, ap); /* counted: the tick must not stop us inside stdio */
+#else
     n = vprintf(format, ap);
+#endif
     va_end(ap);
     return n;
 #else
