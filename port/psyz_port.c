@@ -183,6 +183,20 @@ int Mgs_Printf(const char* fmt, ...) {
 #include "freertos/semphr.h"
 volatile int mgs_in_printf;
 extern int Mgs_IsTickTask(void); /* esp32_vblank.c */
+#include "freertos/queue.h"
+#include "freertos/idf_additions.h"
+#include "esp_heap_caps.h"
+static QueueHandle_t log_queue;
+static TaskHandle_t log_task_handle;
+static void log_task(void* arg) {
+    static char line[512];
+    (void)arg;
+    for (;;) {
+        if (xQueueReceive(log_queue, line, portMAX_DELAY) == pdTRUE) {
+            fputs(line, stdout);
+        }
+    }
+}
 
 /* Does this task hold stdout's (or stderr's) stream lock right now? The
  * counter above covers prints that go through this file; this covers the
@@ -212,7 +226,21 @@ int Mgs_Vprintf(const char* fmt, va_list ap) {
         static char line[512];
         n = vsnprintf(line, sizeof line, fmt, ap);
         if (n > 0) {
-            esp_rom_printf("%s", line);
+            /* Not straight to the console either: the ROM printf feeds the
+             * UART a byte at a time and a 250-character report held the
+             * tick -- and so the audio mixer below it -- for 20 ms; the DAC
+             * ran dry and replayed its last buffer. Hand the line to a
+             * low-priority logger task instead; drop it if that is behind. */
+            if (!log_queue) {
+                log_queue = xQueueCreate(8, sizeof line);
+                if (log_queue) {
+                    xTaskCreatePinnedToCoreWithCaps(log_task, "mgs_log", 4096, NULL, 1,
+                                                    &log_task_handle, 1, MALLOC_CAP_SPIRAM);
+                }
+            }
+            if (!log_queue || xQueueSend(log_queue, line, 0) != pdTRUE) {
+                esp_rom_printf("%s", line);
+            }
         }
         return n;
     }
