@@ -3,6 +3,10 @@
 
 extern GV_HEAP       MemorySystems_800AD2F0[MAX_MEMSYS];
 extern OT_TYPE ptr_800B1400[256];
+#ifdef __psyz
+unsigned mgs_dbg_div_culled, mgs_dbg_div_split, mgs_dbg_div_starved, mgs_dbg_div_direct;
+#endif
+
 
 typedef struct DG_DivideMem
 {
@@ -455,6 +459,28 @@ STATIC void DG_InitRVector( DG_OBJ *obj,  int idx )
         {
             int pack_raise = pack->tag & 0xFFFF;
             int pack_addr  = pack->tag >> 8;
+#ifdef __psyz
+            if ( pack_raise == 0 )
+            {
+                mgs_dbg_div_culled++;
+            }
+            else if ( ( *(unsigned int*)(SCRPAD_ADDR + 0x014) < pack_addr ) &&
+                      ( pack_raise < *(int*)(SCRPAD_ADDR + 0x018) ) )
+            {
+                if ( *(int*)(SCRPAD_ADDR + 0x028) >= 4 )
+                {
+                    mgs_dbg_div_split++;
+                }
+                else
+                {
+                    mgs_dbg_div_starved++;
+                }
+            }
+            else
+            {
+                mgs_dbg_div_direct++;
+            }
+#endif
 
             if ( ( *(unsigned int*)(SCRPAD_ADDR + 0x014) < pack_addr ) &&
                  ( pack_raise < *(int*)(SCRPAD_ADDR + 0x018) )         &&
@@ -592,6 +618,19 @@ void DG_DivideChanl( DG_CHANL *chanl, int idx )
     DG_Clip( &chanl->clip_rect, chanl->clip_distance );
 
     divide_mem = GetDivideMem();
+#ifdef __psyz
+    {
+        /* near-polygon subdivision: is it happening, or starved of packs? */
+        static unsigned beat;
+        if ( ( ++beat % 60u ) == 0u )
+        {
+            printf( "[divide] per 60 frames: culled %u split %u starved %u direct %u | free packs now %d\n",
+                    mgs_dbg_div_culled, mgs_dbg_div_split, mgs_dbg_div_starved,
+                    mgs_dbg_div_direct, divide_mem->n_packs );
+            mgs_dbg_div_culled = mgs_dbg_div_split = mgs_dbg_div_starved = mgs_dbg_div_direct = 0;
+        }
+    }
+#endif
     divide_mem->ot = ptr_800B1400;
     divide_mem->field_14 = 0x800;
 

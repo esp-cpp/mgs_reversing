@@ -7,6 +7,7 @@
 #include "common.h"
 #include "libgv/libgv.h"
 #include "libdg/libdg.h"
+extern SVECTOR DG_Ambient;
 #include "game/game.h"
 
 typedef struct _Work
@@ -127,6 +128,45 @@ void SubEfct_800CC914(DG_OBJ *obj)
     {
         return;
     }
+#ifdef __psyz
+    {
+        /* what does the hull actually get drawn with? */
+        static int beat;
+        if ((++beat % 120) == 1)
+        {
+            if (beat == 1)
+            {
+                const DG_MDL *m = obj->model;
+                printf("[sub] model bbox %d,%d,%d..%d,%d,%d raise %d n_verts %d n_faces %d flags %08x\n",
+                       m->min.vx, m->min.vy, m->min.vz, m->max.vx, m->max.vy, m->max.vz,
+                       obj->raise, m->n_verts, m->n_faces, (unsigned)m->flags);
+            }
+            printf("[sub] ambient %d,%d,%d\n", DG_Ambient.vx, DG_Ambient.vy, DG_Ambient.vz);
+            printf("[sub] t %d world %d,%d,%d screen.t %d,%d,%d\n", beat, (int)obj->world.t[0],
+                   (int)obj->world.t[1], (int)obj->world.t[2], (int)obj->screen.t[0],
+                   (int)obj->screen.t[1], (int)obj->screen.t[2]);
+            const POLY_GT4 *p = packs;
+            DG_TEX *tex = DG_GetTexture(obj->model->materials[0]);
+            int k, tagged = 0;
+            for (k = 0; k < obj->n_packs; k++)
+            {
+                if (packs[k].tag)
+                {
+                    tagged++;
+                }
+            }
+            printf("[sub] pack0 code %02X rgb0 %d,%d,%d rgb1 %d,%d,%d rgb2 %d,%d,%d tpage %04X clut %04X uv %d,%d %d,%d %d,%d %d,%d | "
+                   "xy %d,%d %d,%d %d,%d %d,%d tag %08lX len %lu | material %04X -> tex off %d,%d w %d h %d tpage %04X clut %04X | "
+                   "n_packs %d tagged %d verts %d\n",
+                   p->code, p->r0, p->g0, p->b0, p->r1, p->g1, p->b1, p->r2, p->g2, p->b2,
+                   p->tpage, p->clut, p->u0, p->v0, p->u1, p->v1, p->u2, p->v2, p->u3, p->v3,
+                   p->x0, p->y0, p->x1, p->y1, p->x2, p->y2, p->x3, p->y3, (unsigned long)p->tag,
+                   (unsigned long)p->len,
+                   obj->model->materials[0], tex->off_x, tex->off_y, tex->w, tex->h, tex->tpage,
+                   tex->clut, obj->n_packs, tagged, obj->model->n_verts);
+        }
+    }
+#endif
 
     while (obj != NULL)
     {
@@ -215,6 +255,16 @@ void *NewSubEfct_800CCB10(OBJECT *parent, SVECTOR *rotation)
         work->light[1].m[0][0] = 2048;
         work->light[1].m[1][0] = 2048;
         work->light[1].m[2][0] = 2048;
+#ifdef MGS_BRIGHT_SUB
+        /* experiment: an unmistakable hull. Full light, grey ambient. */
+        work->light[1].m[0][0] = 4096;
+        work->light[1].m[1][0] = 4096;
+        work->light[1].m[2][0] = 4096;
+        work->light[0].t[0] = 160;
+        work->light[0].t[1] = 160;
+        work->light[0].t[2] = 160;
+        printf("[sub] BRIGHT experiment: light x2, ambient 160\n");
+#endif
     }
 
     return (void *)work;

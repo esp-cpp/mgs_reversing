@@ -192,7 +192,12 @@ static void Act(Work *work)
 
     if (work->has_alloc != 0)
     {
+#ifdef MGS_NO_WATER_SPRITES
+        /* experiment: leave the refraction copy out, so what the scene
+         * underneath looks like can be seen on the panel */
+#else
         WaterViewDraw(work);
+#endif
 
         tile = &work->prims->tile2[GV_Clock];
         addPrim(&ot[0xFF], tile);

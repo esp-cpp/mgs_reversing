@@ -248,9 +248,20 @@ STATIC void DG_BoundObjs(DG_OBJS *objs, int idx, unsigned int flag, int in_bound
                          * if the depth FIFO is not being filled, every model
                          * disappears and characters lose their parts. */
                         static int b = 24;
-                        if (b > 0)
+                        long *z = (long *)(SCRPAD_ADDR + 0x6C);
+                        int infront = 0, zi;
+                        for (zi = 0; zi < 8; zi++)
                         {
-                            long *z = (long *)(SCRPAD_ADDR + 0x6C);
+                            if (z[zi] > 0)
+                            {
+                                infront = 1;
+                            }
+                        }
+                        /* boxes with a corner in front of the camera are the
+                         * ones worth seeing; a box wholly behind is just the
+                         * scenery the camera turned away from */
+                        if (b > 0 && infront)
+                        {
                             b--;
                             printf("[zcull] obj %p world %d,%d,%d view %d,%d,%d bbox %d..%d,%d..%d z:",
                                    (void *)obj, (int)obj->world.t[0], (int)obj->world.t[1],
