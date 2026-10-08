@@ -45,9 +45,6 @@ static void KillEffect(LPMGSDEMOACT lpAct, int type);
 static BOOL ShowEffectExecute(LPMGSDEMOACT lpAct, DMO_DAT *data, ACTNODE *node);
 static BOOL ShowEffectStop(LPMGSDEMOACT lpAct, DMO_DAT *data);
 static BOOL ShowScene(LPMGSDEMOACT lpAct, DMO_ADJ *adjust);
-#ifdef __psyz
-static DEMO_MODEL *mgs_dbg_sub_model; /* the model the submarine-water effect is on */
-#endif
 static void demothrd_m1e1_8007D404(LPMGSDEMOACT lpAct, DMO_ADJ *adjust, DMO_MDL *model_file, DEMO_MODEL *model);
 static void demothrd_hind_8007D9C8(LPMGSDEMOACT lpAct, DMO_ADJ *adjust, DMO_MDL *model_file, DEMO_MODEL *model);
 
@@ -536,7 +533,7 @@ BOOL FrameRunDemo(LPMGSDEMOACT lpAct, DMO_DAT *data)
     rot.vy = ratan2(diff.vx, diff.vz);
     rot.vz = 2048;
 #endif
-#ifdef __psyz
+#ifdef MGS_DEMO_TRACE
     {
         /* the shot's camera, a few times a second: is the orientation the
          * data asks for the one the matrix ends up with? */
@@ -547,16 +544,6 @@ BOOL FrameRunDemo(LPMGSDEMOACT lpAct, DMO_DAT *data)
                    data->eye_x, data->eye_y, data->eye_z, data->center_x, data->center_y,
                    data->center_z, diff.vx, diff.vy, diff.vz, radius, rot.vx, rot.vy,
                    data->roll, data->clip_dist);
-            if (mgs_dbg_sub_model && mgs_dbg_sub_model->object.objs)
-            {
-                DG_OBJS *o = mgs_dbg_sub_model->object.objs;
-                printf("[demo-sub] mov %d,%d,%d rot %d,%d,%d | objs %p world %d,%d,%d bound %d n_models %d flag %08x\n",
-                       mgs_dbg_sub_model->control.mov.vx, mgs_dbg_sub_model->control.mov.vy,
-                       mgs_dbg_sub_model->control.mov.vz, mgs_dbg_sub_model->control.rot.vx,
-                       mgs_dbg_sub_model->control.rot.vy, mgs_dbg_sub_model->control.rot.vz,
-                       (void *)o, (int)o->world.t[0], (int)o->world.t[1], (int)o->world.t[2],
-                       (int)o->bound_mode, (int)o->n_models, (unsigned)o->flag);
-            }
         }
     }
 #endif
@@ -588,7 +575,7 @@ BOOL FrameRunDemo(LPMGSDEMOACT lpAct, DMO_DAT *data)
 
 static BOOL ShowEffect(LPMGSDEMOACT lpAct, DMO_DATA_0x36 *data, ACTNODE *node)
 {
-#ifdef __psyz
+#ifdef MGS_DEMO_TRACE
     {
         static unsigned seen[4];
         unsigned t = (unsigned)data->field_4_type;
@@ -1818,10 +1805,9 @@ static BOOL ShowEffect(LPMGSDEMOACT lpAct, DMO_DATA_0x36 *data, ACTNODE *node)
             {
                 node->actor1 = funcptr(&pModel->object, &pModel->control.rot);
             }
-#ifdef __psyz
+#ifdef MGS_DEMO_TRACE
             printf("[demo] submarine water effect: class %p actor %p model %d\n",
                    (void *)funcptr, (void *)node->actor1, (int)data->data.variant_0x3F.field_18);
-            mgs_dbg_sub_model = pModel;
 #endif
         }
         break;
