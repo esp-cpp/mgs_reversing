@@ -21,6 +21,7 @@
 
 #include "libfs/libfs.h"
 #include "libfs/cdbios.h"
+#include "mgs_snapshot.h"
 
 #define CD_SECTOR 2048
 
@@ -566,4 +567,34 @@ void CDBIOS_ForceStop(void) {
 int Mgs_CdSectorPresent(unsigned sector) {
     unsigned slot = sector / SLOT_SECTORS;
     return slot < FS_MAX_FILEID && Mgs_CdFilePresent((int)slot);
+}
+
+/* --- save states --------------------------------------------------------- */
+void Mgs_CdSnapshotSetup(void) {
+    Mgs_SnapshotPreserve(cd_files, sizeof cd_files);
+    Mgs_SnapshotPreserve(cd_data, sizeof cd_data);
+    Mgs_SnapshotPreserve(cd_sizes, sizeof cd_sizes);
+    Mgs_SnapshotPreserve(cd_pos, sizeof cd_pos);
+    Mgs_SnapshotPreserve(&cd_ready, sizeof cd_ready);
+    Mgs_SnapshotPreserve(&pf_buf, sizeof pf_buf);
+    Mgs_SnapshotPreserve(&pf_task, sizeof pf_task);
+    Mgs_SnapshotPreserve(&pf_lock, sizeof pf_lock);
+    Mgs_SnapshotPreserve(&sd_lock, sizeof sd_lock);
+    Mgs_SnapshotPreserve((void*)&pf_stop, sizeof pf_stop);
+}
+
+/* the ring holds this run's read-ahead; the file positions are this run's */
+void Mgs_CdAfterRestore(void) {
+    int i;
+    if (pf_lock) {
+        xSemaphoreTake(pf_lock, portMAX_DELAY);
+    }
+    pf_base = pf_head = pf_count = 0;
+    if (pf_lock) {
+        xSemaphoreGive(pf_lock);
+    }
+    for (i = 0; i < FS_MAX_FILEID; i++) {
+        cd_pos[i] = -1;
+    }
+    mgs_cd_pump_busy = 0;
 }

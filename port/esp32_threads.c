@@ -19,6 +19,8 @@
 #include "freertos/task.h"
 #include <stdlib.h>
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
+#include "mgs_snapshot.h"
 
 #define MGS_MAX_THREADS 8
 /* MGS declares 2 KB stacks (GAME_STACK_SIZE in main.c) because the PSX's libc
@@ -66,6 +68,11 @@ extern volatile int psyz_critical_depth;   /* psyz libapi.c: the running task's 
 
 static MgsThread threads[MGS_MAX_THREADS];
 static int current_thread = -1;
+/* The stacks, at fixed addresses: a save state holds the threads' saved
+ * contexts, and those embed stack addresses, so the stacks must be where
+ * they were. PSRAM, as the heap ones were (MGS_THREAD_STACK_CAPS). */
+EXT_RAM_BSS_ATTR static unsigned char stack_pool[MGS_MAX_THREADS][MGS_THREAD_STACK]
+    __attribute__((aligned(16)));
 
 /* The PSX's ChangeTh was a syscall and ran with interrupts masked; nothing
  * could observe it half-done. Here the vblank tick preempts at any instruction
@@ -161,21 +168,13 @@ unsigned long OpenTh(unsigned long (*func)(), unsigned long sp,
 #ifndef MGS_THREAD_STACK_CAPS
 #define MGS_THREAD_STACK_CAPS MALLOC_CAP_INTERNAL
 #endif
-    threads[i].stack = heap_caps_malloc(MGS_THREAD_STACK, MGS_THREAD_STACK_CAPS);
-    if (!threads[i].stack) {
-        printf("[thread] slot %d: no room in the preferred memory, falling back\n", i);
-        threads[i].stack = heap_caps_malloc(MGS_THREAD_STACK,
-                                            MGS_THREAD_STACK_CAPS == MALLOC_CAP_INTERNAL
-                                                ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL);
+    threads[i].stack = stack_pool[i];
+    if (!threads[i].tcb) {
+        threads[i].tcb = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
     }
-    threads[i].tcb = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
-    if (!threads[i].stack || !threads[i].tcb) {
-        printf("[thread] OpenTh: no memory for slot %d (stack %p tcb %p)\n", i,
-               threads[i].stack, (void*)threads[i].tcb);
-        free(threads[i].stack);
-        free(threads[i].tcb);
+    if (!threads[i].tcb) {
+        printf("[thread] OpenTh: no memory for slot %d's control block\n", i);
         threads[i].stack = NULL;
-        threads[i].tcb = NULL;
         threads[i].in_use = 0;
         return (unsigned long)-1;
     }
@@ -441,11 +440,10 @@ void Mgs_ThreadsStopAll(void) {
         if (threads[i].handle && threads[i].entry) {
             vTaskDelete(threads[i].handle);
         }
-        heap_caps_free(threads[i].stack);
-        heap_caps_free(threads[i].tcb);
+        /* the stacks are the fixed pool; the control blocks are kept for
+         * the next launch */
         threads[i].handle = 0;
         threads[i].stack = NULL;
-        threads[i].tcb = NULL;
         threads[i].entry = 0;
         threads[i].in_use = 0;
         threads[i].crit = 0;
@@ -454,4 +452,118 @@ void Mgs_ThreadsStopAll(void) {
     current_thread = -1;
     change_in_flight = 0;
     paused_thread = -1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Save states (see mgs_snapshot.h)
+ * ------------------------------------------------------------------------ */
+
+void Mgs_ThreadsSnapshotSetup(void) {
+    int i;
+    for (i = 0; i < MGS_MAX_THREADS; i++) {
+        Mgs_SnapshotPreserve(&threads[i].handle, sizeof threads[i].handle);
+        Mgs_SnapshotPreserve(&threads[i].tcb, sizeof threads[i].tcb);
+    }
+}
+
+int Mgs_ThreadStackRegion(int i, void** base, size_t* size) {
+    if (i < 0 || i >= MGS_MAX_THREADS || !threads[i].in_use) {
+        return 0;
+    }
+    if (threads[i].entry) {
+        *base = stack_pool[i];
+        *size = MGS_THREAD_STACK;
+    } else {
+        Mgs_MainTaskStack(base, size);
+    }
+    return *base != NULL;
+}
+
+/* Must run paused: the current thread suspended, the others parked. A
+ * parked task's context is on its stack like any other switched-out task's;
+ * the control block's first word is where that context starts. */
+int Mgs_ThreadsSnapshot(MgsThreadSnap* out, int n) {
+    int i, count = 0;
+    for (i = 0; i < n && i < MGS_MAX_THREADS; i++) {
+        MgsThreadSnap* t = &out[i];
+        memset(t, 0, sizeof *t);
+        if (!threads[i].in_use || !threads[i].handle) {
+            continue;
+        }
+        t->in_use = 1;
+        t->entry_present = threads[i].entry != 0;
+        t->forced = threads[i].forced;
+        t->crit = threads[i].crit;
+        t->top = *(volatile unsigned*)threads[i].handle;
+        t->notify = ulTaskNotifyValueClear(threads[i].handle, 0); /* read, clear nothing */
+        count++;
+    }
+    return count;
+}
+
+/* After the memory restore: threads[] (in_use, entry, forced, crit),
+ * current_thread and paused_thread already hold the snapshot's values and
+ * the handles this run's. Make the live tasks match, install the saved
+ * contexts, and leave each task in the state Mgs_ThreadsResume expects. */
+int Mgs_ThreadsRestore(const MgsThreadSnap* in, int n) {
+    int i;
+    for (i = 0; i < n && i < MGS_MAX_THREADS; i++) {
+        const MgsThreadSnap* t = &in[i];
+        int live = threads[i].handle != NULL;
+        if (t->in_use && !live) {
+            if (!threads[i].entry) {
+                printf("[snapshot] slot %d: the main task is missing\n", i);
+                return 0;
+            }
+            if (!threads[i].tcb) {
+                threads[i].tcb = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
+            }
+            threads[i].stack = stack_pool[i];
+            threads[i].handle = xTaskCreateStaticPinnedToCore(
+                thread_trampoline, "mgs_th", MGS_THREAD_STACK, &threads[i], 5,
+                (StackType_t*)threads[i].stack, threads[i].tcb, 0);
+            if (!threads[i].handle) {
+                printf("[snapshot] slot %d: could not recreate the task\n", i);
+                return 0;
+            }
+            /* let it reach its park before its stack is replaced */
+            vTaskDelay(pdMS_TO_TICKS(5));
+        } else if (!t->in_use && live) {
+            vTaskDelete(threads[i].handle);
+            threads[i].handle = NULL;
+            threads[i].in_use = 0;
+            threads[i].stack = NULL;
+        }
+    }
+    /* everything still, then the contexts */
+    for (i = 0; i < n && i < MGS_MAX_THREADS; i++) {
+        if (in[i].in_use && threads[i].handle) {
+            vTaskSuspend(threads[i].handle);
+        }
+    }
+    for (i = 0; i < n && i < MGS_MAX_THREADS; i++) {
+        if (!in[i].in_use || !threads[i].handle) {
+            continue;
+        }
+        *(volatile unsigned*)threads[i].handle = in[i].top;
+        ulTaskNotifyValueClear(threads[i].handle, 0xFFFFFFFFu);
+        if (in[i].notify) {
+            xTaskNotifyGive(threads[i].handle);
+        }
+    }
+    /* parked threads go back to waiting on their notification: resumed,
+     * they return from the take, see nothing pending and take again. The
+     * paused one and any the tick had stopped mid-code stay suspended; the
+     * resume path (Mgs_ThreadsResume, thread_wake) handles those. */
+    for (i = 0; i < n && i < MGS_MAX_THREADS; i++) {
+        if (!in[i].in_use || !threads[i].handle) {
+            continue;
+        }
+        if (i == paused_thread || threads[i].forced) {
+            continue;
+        }
+        vTaskResume(threads[i].handle);
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));
+    return 1;
 }

@@ -188,6 +188,12 @@ extern int Mgs_IsTickTask(void); /* esp32_vblank.c */
 #include "esp_heap_caps.h"
 static QueueHandle_t log_queue;
 static TaskHandle_t log_task_handle;
+#include "mgs_snapshot.h"
+void Mgs_PrintfSnapshotSetup(void) {
+    Mgs_SnapshotPreserve(&log_queue, sizeof log_queue);
+    Mgs_SnapshotPreserve(&log_task_handle, sizeof log_task_handle);
+}
+void Mgs_PrintfAfterRestore(void) { mgs_in_printf = 0; }
 static void log_task(void* arg) {
     static char line[512];
     (void)arg;

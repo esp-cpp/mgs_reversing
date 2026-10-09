@@ -29,6 +29,7 @@
 #include "esp_cpu.h"
 #endif
 #include <psyz.h>
+#include "mgs_snapshot.h"
 #include <libgpu.h>
 
 extern void (*g_VsyncCallback)(void);   /* psyz/src/psyz/libetc.c */
@@ -455,4 +456,11 @@ void Mgs_StopVblank(void) {
     Psyz_GpuWorkerStop(); /* finishes its batch first; needs no tick */
     if (lcd_task) { vTaskDelete(lcd_task); lcd_task = NULL; }
     started = 0;
+}
+
+/* --- save states --------------------------------------------------------- */
+void Mgs_VblankSnapshotSetup(void) {
+    Mgs_SnapshotPreserve(&started, sizeof started);
+    Mgs_SnapshotPreserve(&tick_task, sizeof tick_task);
+    Mgs_SnapshotPreserve(&lcd_task, sizeof lcd_task);
 }
