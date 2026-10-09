@@ -323,7 +323,7 @@ unsigned mgs_frame_seq;
 static void scanout_task(void* arg) {
     TickType_t next = xTaskGetTickCount();
     extern unsigned short g_RawVram[];
-    void lcd_present(const unsigned short* src);
+    void lcd_present(const unsigned short* src, int rows);
     extern DISPENV g_dispenv;
     unsigned last_seq = 0;
     int idle_ms = 0;
@@ -342,7 +342,8 @@ static void scanout_task(void* arg) {
             extern long long esp_timer_get_time(void);
             long long t0 = esp_timer_get_time();
             lcd_present(&g_RawVram[(unsigned)g_dispenv.disp.y * 1024u +
-                                   (unsigned)g_dispenv.disp.x]);
+                                   (unsigned)g_dispenv.disp.x],
+                        g_dispenv.disp.h);
             mgs_prof_present_us += (unsigned)(esp_timer_get_time() - t0);
         }
 
