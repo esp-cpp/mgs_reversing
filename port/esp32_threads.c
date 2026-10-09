@@ -567,3 +567,17 @@ int Mgs_ThreadsRestore(const MgsThreadSnap* in, int n) {
     vTaskDelay(pdMS_TO_TICKS(5));
     return 1;
 }
+
+/* for the save-state diagnostics: every slot's FreeRTOS state */
+void Mgs_ThreadsReport(const char* when) {
+    int i;
+    printf("[threads] %s: current %d paused %d in-flight %d |", when, current_thread,
+           paused_thread, change_in_flight);
+    for (i = 0; i < MGS_MAX_THREADS; i++) {
+        if (threads[i].in_use && threads[i].handle) {
+            printf(" t%d:st%d%s%s", i, (int)eTaskGetState(threads[i].handle),
+                   threads[i].forced ? "F" : "", threads[i].entry ? "" : "(main)");
+        }
+    }
+    printf("\n");
+}

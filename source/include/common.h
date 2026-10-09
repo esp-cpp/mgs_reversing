@@ -142,7 +142,16 @@ typedef int             BOOL;
 #define STATIC          /* fake keyword for documentation */
 #endif
 
+#ifdef __psyz
+/* The explicit sections (".sbss", ".sdata", ".bss") are the PSX's small-data
+ * areas. Under their own names the ESP build's linker script would claim
+ * them before the port's fragment can put them with the rest of the game's
+ * statics (the save states and the relaunch reset depend on that), so they
+ * are renamed ".mgs.sbss" etc. and mapped by components/mgs/linker.lf. */
+#define SECTION(x)      __attribute__((section(".mgs" x)))
+#else
 #define SECTION(x)      __attribute__((section(x)))
+#endif
 
 /*---------------------------------------------------------------------------*/
 
