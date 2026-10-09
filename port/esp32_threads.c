@@ -518,21 +518,36 @@ int Mgs_ThreadsRestore(const MgsThreadSnap* in, int n) {
             if (!threads[i].tcb) {
                 threads[i].tcb = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
             }
+            /* Creating the task fills its stack with the overflow-check
+             * pattern and runs it to its park -- over the stack bytes the
+             * memory restore just put there. Keep those aside and put them
+             * back once the task is parked and stopped. */
+            void* keep = heap_caps_malloc(MGS_THREAD_STACK, MALLOC_CAP_SPIRAM);
+            if (!keep) {
+                printf("[snapshot] slot %d: no memory to keep its stack\n", i);
+                return 0;
+            }
+            memcpy(keep, stack_pool[i], MGS_THREAD_STACK);
             threads[i].stack = stack_pool[i];
             threads[i].handle = xTaskCreateStaticPinnedToCore(
                 thread_trampoline, "mgs_th", MGS_THREAD_STACK, &threads[i], 5,
                 (StackType_t*)threads[i].stack, threads[i].tcb, 0);
             if (!threads[i].handle) {
+                heap_caps_free(keep);
                 printf("[snapshot] slot %d: could not recreate the task\n", i);
                 return 0;
             }
-            /* let it reach its park before its stack is replaced */
-            vTaskDelay(pdMS_TO_TICKS(5));
+            vTaskDelay(pdMS_TO_TICKS(5)); /* to its park */
+            vTaskSuspend(threads[i].handle);
+            memcpy(stack_pool[i], keep, MGS_THREAD_STACK);
+            heap_caps_free(keep);
+            printf("[snapshot] slot %d: task recreated\n", i);
         } else if (!t->in_use && live) {
             vTaskDelete(threads[i].handle);
             threads[i].handle = NULL;
             threads[i].in_use = 0;
             threads[i].stack = NULL;
+            printf("[snapshot] slot %d: task deleted (not in the state)\n", i);
         }
     }
     /* everything still, then the contexts */
