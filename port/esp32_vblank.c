@@ -67,12 +67,21 @@ extern volatile int mgs_cd_pump_busy;
 
 static void spu_irq_deliver(void);
 
+/* set by Mgs_ResumeVblank: the periodic tasks re-anchor their schedule to
+ * now instead of running back-to-back to make up for the pause (a minute
+ * paused was a long stall on resume, the tick outranking the game) */
+static volatile int tick_resync, lcd_resync;
+
 static void vblank_tick_task(void* arg) {
     TickType_t next = xTaskGetTickCount();
     unsigned sub = 0;
     (void)arg;
     for (;;) {
         mgs_tick_phase = "sleep";
+        if (tick_resync) {
+            tick_resync = 0;
+            next = xTaskGetTickCount();
+        }
         vTaskDelayUntil(&next, pdMS_TO_TICKS(SPU_TICK_MS));
         mgs_tick_phase = "spu";
         spu_irq_deliver();
@@ -329,6 +338,10 @@ static void scanout_task(void* arg) {
     int idle_ms = 0;
     (void)arg;
     for (;;) {
+        if (lcd_resync) {
+            lcd_resync = 0;
+            next = xTaskGetTickCount();
+        }
         vTaskDelayUntil(&next, pdMS_TO_TICKS(SCANOUT_POLL_MS));
         if (mgs_frame_seq == last_seq) {
             idle_ms += SCANOUT_POLL_MS;
@@ -447,6 +460,8 @@ void Mgs_PauseVblank(void) {
 }
 
 void Mgs_ResumeVblank(void) {
+    tick_resync = 1;
+    lcd_resync = 1;
     if (lcd_task) vTaskResume(lcd_task);
     if (tick_task) vTaskResume(tick_task);
 }
