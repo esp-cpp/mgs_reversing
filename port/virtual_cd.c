@@ -220,6 +220,7 @@ static unsigned pf_base;  /* sector number held in slot pf_head */
 static unsigned pf_head;  /* ring slot of pf_base */
 static unsigned pf_count; /* valid sectors from pf_base */
 static volatile int pf_stop;
+static volatile int pf_done; /* the task has finished and parked itself */
 static SemaphoreHandle_t pf_lock; /* ring bookkeeping */
 static SemaphoreHandle_t sd_lock; /* the FILE streams: one reader at a time */
 static TaskHandle_t pf_task;
@@ -297,8 +298,14 @@ static void pf_task_main(void* arg) {
             xSemaphoreGive(pf_lock);
         }
     }
-    pf_task = NULL;
-    vTaskDelete(NULL);
+    /* created WithCaps, so the creator deletes it (vTaskDeleteWithCaps);
+     * self-deleting here handed the PSRAM stack and control block to the
+     * wrong allocator and corrupted the heap on every relaunch */
+    pf_done = 1;
+    vTaskSuspend(NULL);
+    for (;;) {
+        vTaskDelay(portMAX_DELAY);
+    }
 }
 
 static void pf_start(void) {
@@ -316,6 +323,7 @@ static void pf_start(void) {
     }
     pf_base = pf_head = pf_count = 0;
     pf_stop = 0;
+    pf_done = 0;
     if (xTaskCreatePinnedToCoreWithCaps(pf_task_main, "vcd_prefetch", 4096, NULL, 5,
                                         &pf_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         pf_task = NULL;
@@ -329,9 +337,11 @@ static void pf_shutdown(void) {
     if (pf_task) {
         pf_stop = 1;
         xTaskNotifyGive(pf_task);
-        while (pf_task) {
+        while (!pf_done) {
             vTaskDelay(1);
         }
+        vTaskDeleteWithCaps(pf_task);
+        pf_task = NULL;
     }
     if (pf_buf) {
         heap_caps_free(pf_buf);
@@ -581,6 +591,7 @@ void Mgs_CdSnapshotSetup(void) {
     Mgs_SnapshotPreserve(&pf_lock, sizeof pf_lock);
     Mgs_SnapshotPreserve(&sd_lock, sizeof sd_lock);
     Mgs_SnapshotPreserve((void*)&pf_stop, sizeof pf_stop);
+    Mgs_SnapshotPreserve((void*)&pf_done, sizeof pf_done);
 }
 
 /* the ring holds this run's read-ahead; the file positions are this run's */
