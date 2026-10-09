@@ -221,6 +221,8 @@ static unsigned pf_head;  /* ring slot of pf_base */
 static unsigned pf_count; /* valid sectors from pf_base */
 static volatile int pf_stop;
 static volatile int pf_done; /* the task has finished and parked itself */
+static volatile int pf_hold; /* park at the next safe point (save states) */
+static volatile int pf_held; /* ... and it has */
 static SemaphoreHandle_t pf_lock; /* ring bookkeeping */
 static SemaphoreHandle_t sd_lock; /* the FILE streams: one reader at a time */
 static TaskHandle_t pf_task;
@@ -269,10 +271,18 @@ static void pf_task_main(void* arg) {
     (void)arg;
     while (!pf_stop) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+        if (pf_hold) {
+            /* a save state is being restored over this file's statics; hold
+             * no lock and touch nothing until it is done */
+            pf_held = 1;
+            vTaskSuspend(NULL);
+            pf_held = 0;
+            continue;
+        }
         for (;;) {
             unsigned next, slot;
             int n;
-            if (pf_stop) {
+            if (pf_stop || pf_hold) {
                 break;
             }
             xSemaphoreTake(pf_lock, portMAX_DELAY);
@@ -597,6 +607,28 @@ void Mgs_CdSnapshotSetup(void) {
     Mgs_SnapshotPreserve(&sd_lock, sizeof sd_lock);
     Mgs_SnapshotPreserve((void*)&pf_stop, sizeof pf_stop);
     Mgs_SnapshotPreserve((void*)&pf_done, sizeof pf_done);
+    Mgs_SnapshotPreserve((void*)&pf_hold, sizeof pf_hold);
+    Mgs_SnapshotPreserve((void*)&pf_held, sizeof pf_held);
+}
+
+/* park the read-ahead task where it holds no lock, for the restore */
+void Mgs_CdHoldReadAhead(void) {
+    if (!pf_task) {
+        return;
+    }
+    pf_hold = 1;
+    xTaskNotifyGive(pf_task);
+    while (!pf_held) {
+        vTaskDelay(1);
+    }
+}
+
+void Mgs_CdReleaseReadAhead(void) {
+    if (!pf_task) {
+        return;
+    }
+    pf_hold = 0;
+    vTaskResume(pf_task);
 }
 
 /* the ring holds this run's read-ahead; the file positions are this run's */

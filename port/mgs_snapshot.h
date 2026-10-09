@@ -45,6 +45,8 @@ void Mgs_MainTaskStack(void** base, size_t* size);
 
 void Mgs_CdSnapshotSetup(void);
 void Mgs_CdAfterRestore(void);
+void Mgs_CdHoldReadAhead(void);
+void Mgs_CdReleaseReadAhead(void);
 void Mgs_VblankSnapshotSetup(void);
 void Mgs_PrintfSnapshotSetup(void);
 void Mgs_PrintfAfterRestore(void);
