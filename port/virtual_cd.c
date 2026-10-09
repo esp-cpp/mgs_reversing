@@ -337,7 +337,12 @@ static void pf_shutdown(void) {
     if (pf_task) {
         pf_stop = 1;
         xTaskNotifyGive(pf_task);
-        while (!pf_done) {
+        /* The task sets pf_done and then suspends itself, on the other
+         * core. Deleting it between the two frees its stack under a task
+         * that is still running on it: the next allocations (this run's
+         * locks) landed in that memory and were scribbled on. Wait for the
+         * suspension itself. */
+        while (!pf_done || eTaskGetState(pf_task) != eSuspended) {
             vTaskDelay(1);
         }
         vTaskDeleteWithCaps(pf_task);
