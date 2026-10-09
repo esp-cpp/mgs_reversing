@@ -603,6 +603,19 @@ static void InitPacks( Work *work, u_char v )
 
             pack->tpage = tex->tpage;
             pack->clut = tex->clut;
+#ifdef __psyz
+            {
+                /* once: the smoke texture's VRAM placement, for the breath diagnosis */
+                static int shown = 3;
+                if ( shown > 0 )
+                {
+                    shown--;
+                    printf( "[anime] tex at %d,%d %dx%d tpage %04X clut %04X | amb %d rgb %d\n",
+                            tex->off_x, tex->off_y, tex->w, tex->h, tex->tpage, tex->clut,
+                            work->amb, v );
+                }
+            }
+#endif
 
             amb = work->amb;
             if ( ( amb & 0xfffc ) == 0 )
