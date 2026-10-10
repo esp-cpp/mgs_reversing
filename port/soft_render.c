@@ -42,6 +42,10 @@ u16 g_RawVram[VRAM_H * VRAM_W];
 #endif
 #define SOFT_CLUT_CACHE
 #define SOFT_RASTER_RECIP /* RV32: no 64-bit divide instruction */
+/* SOFT_TILED_TEX (texture fetches from an 8x8-tiled shadow of VRAM): off.
+ * It takes a v-walk from 185 to ~80 cycles per texel, but the game's
+ * triangles are small and touch fresh cache lines either way, and the
+ * dominant gouraud case measured 122 cy/px tiled against 110 linear. */
 #include "platform/soft_raster.inc.c"
 
 /* The scanout asks which rows of VRAM the drawing area covers, so it only
@@ -73,11 +77,20 @@ __attribute__((constructor)) static void bind_vram_early(void) {
 
 void Draw_Reset(void) {
     vram = g_RawVram;
-    st.x0 = 0;
-    st.y0 = 0;
-    st.x1 = VRAM_W - 1;
-    st.y1 = VRAM_H - 1;
-    st.ox = st.oy = 0;
+    Draw_TiledInit();
+    /* both workers' state: each core rasterizes its own band of rows */
+    for (int c = 0; c < 2; c++) {
+        SoftState* s = &st_c[c];
+        s->x0 = 0;
+        s->x1 = VRAM_W - 1;
+        s->ox = s->oy = 0;
+        s->area_y0 = s->band_y0 = 0;
+        s->area_y1 = s->band_y1 = VRAM_H - 1;
+        s->y0 = 0;
+        s->y1 = VRAM_H - 1;
+        s->mask_or = 0;
+        s->mask_check = 0;
+    }
 }
 
 /* Frame telemetry psyz's libgpu.c references (SOTN defines these in its own

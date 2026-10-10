@@ -7,6 +7,8 @@
 #include "libdg.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
+#include <string.h>
+#include "psyz_prof.h"
 #define MGS_CY_PER_MS (CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ * 1000u)
 #else
 #define MGS_CY_PER_MS 360000u
@@ -129,8 +131,31 @@ void DG_SwapFrame(void)
             extern unsigned mgs_vblank_count;
             extern DG_CHANL DG_Chanls[];
             extern unsigned psyz_prof_exeq_us, psyz_prof_load_us,
-                psyz_prof_load_n;
-            extern unsigned psyz_prim_by_code[8];
+                psyz_prof_load_n, psyz_prof_single_batches,
+                psyz_prof_dual_batches, psyz_prof_exeq0_us;
+            extern int psyz_raster_split_row;
+            /* the two workers' counters, summed and cleared */
+            PsyzProf pp;
+            {
+                unsigned* d = (unsigned*)&pp;
+                const unsigned* a = (const unsigned*)&psyz_prof_c[0];
+                const unsigned* b = (const unsigned*)&psyz_prof_c[1];
+                int f;
+                for (f = 0; f < (int)(sizeof(PsyzProf) / sizeof(unsigned)); f++)
+                    d[f] = a[f] + b[f];
+                memset(psyz_prof_c, 0, sizeof psyz_prof_c);
+            }
+#define psyz_prim_by_code pp.prim_by_code
+#define psyz_tri_off pp.tri_off
+#define psyz_tri_tiny pp.tri_tiny
+#define psyz_tri_ok pp.tri_ok
+#define psyz_tri_huge pp.tri_huge
+#define psyz_prof_cy pp.cy
+#define psyz_prof_n pp.n
+#define psyz_prof_rows pp.rows
+#define psyz_prof_px pp.px
+#define psyz_prof_span_cy pp.span_cy
+#define psyz_prof_texfrom_cy pp.texfrom_cy
             extern unsigned psyz_texel_zero, psyz_texel_ok, psyz_flat_px;
             extern unsigned mgs_dbg_objs_seen, mgs_dbg_objs_culled,
                 mgs_dbg_models_culled, mgs_dbg_models_drawn;
@@ -185,7 +210,6 @@ void DG_SwapFrame(void)
             mgs_dbg_cull_sat = 0; mgs_dbg_cull_off = 0;
             mgs_dbg_objs_seen = 0; mgs_dbg_objs_culled = 0;
             mgs_dbg_models_drawn = 0; mgs_dbg_models_culled = 0;
-            extern unsigned psyz_tri_off, psyz_tri_tiny, psyz_tri_ok, psyz_tri_huge;
             /* oversize = wider than 1023 or taller than 511, which the PSX GPU
              * refuses outright. These are polygons whose projection saturated
              * because they cross behind the camera; drawing them is what put a
@@ -202,7 +226,6 @@ void DG_SwapFrame(void)
             psyz_texel_ok = 0;
             psyz_flat_px = 0;
             {
-                extern unsigned psyz_prof_cy[6], psyz_prof_n[6];
                 int k;
                 printf("[rprof] ms/calls: tex %u/%u flat-semi %u/%u flat-fast %u/%u "
                        "sprite %u/%u tile %u/%u | tri-setup %u/%u\n",
@@ -212,27 +235,56 @@ void DG_SwapFrame(void)
                        psyz_prof_n[4], psyz_prof_cy[5] / MGS_CY_PER_MS, psyz_prof_n[5]);
                 for (k = 0; k < 6; k++) { psyz_prof_cy[k] = 0; psyz_prof_n[k] = 0; }
                 {
-                    extern unsigned psyz_prof_rows, psyz_prof_px, psyz_prof_span_cy,
-                        psyz_prof_texfrom_cy;
-                    printf("[rprof2] rows %u px %u | span %u ms (%u cy/px) | texfrom %u ms\n",
+                    printf("[rprof2] rows %u px %u | span %u ms (%u cy/px) | texfrom %u ms | retile %u regions %u ms\n",
                            psyz_prof_rows, psyz_prof_px, psyz_prof_span_cy / MGS_CY_PER_MS,
                            psyz_prof_px ? psyz_prof_span_cy / psyz_prof_px : 0,
-                           psyz_prof_texfrom_cy / MGS_CY_PER_MS);
+                           psyz_prof_texfrom_cy / MGS_CY_PER_MS,
+                           pp.retile_n, pp.retile_cy / MGS_CY_PER_MS);
                     psyz_prof_rows = psyz_prof_px = psyz_prof_span_cy = psyz_prof_texfrom_cy = 0;
+                    /* per span type: bpp, g(ouraud)/f(lat), s(emi)/o(paque), m(odulated)/p(lain):
+                     * ms, thousands of pixels, cycles per pixel, average span length */
+                    printf("[rcase]");
+                    for (k = 0; k < 64; k++) {
+                        if (pp.case_px[k]) {
+                            printf(" %d%c%c%c%s %ums %uk %ucy/px %upx/row", (k >> 3) & 3,
+                                   (k & 4) ? 'g' : 'f', (k & 2) ? 's' : 'o', (k & 1) ? 'm' : 'p',
+                                   (k & 32) ? "c" : "",
+                                   pp.case_cy[k] / MGS_CY_PER_MS, pp.case_px[k] / 1000u,
+                                   pp.case_cy[k] / pp.case_px[k],
+                                   pp.case_px[k] / (pp.case_rows[k] ? pp.case_rows[k] : 1u));
+                        }
+                    }
+                    printf("\n");
                 }
             }
             printf("[prims] 2x %u 3x %u 4x %u 5x %u 6x %u 7x %u\n",
                    psyz_prim_by_code[2], psyz_prim_by_code[3],
                    psyz_prim_by_code[4], psyz_prim_by_code[5],
                    psyz_prim_by_code[6], psyz_prim_by_code[7]);
+#undef psyz_prim_by_code
+#undef psyz_tri_off
+#undef psyz_tri_tiny
+#undef psyz_tri_ok
+#undef psyz_tri_huge
+#undef psyz_prof_cy
+#undef psyz_prof_n
+#undef psyz_prof_rows
+#undef psyz_prof_px
+#undef psyz_prof_span_cy
+#undef psyz_prof_texfrom_cy
             printf("[swap] f%d vbl %u q %d/%d %d/%d drawot %u exeq %u "
-                   "raster_us %u load_us %u loads %u\n",
+                   "raster_us %u/%u split %d load_us %u loads %u batches dual %u single %u\n",
                    beat, mgs_vblank_count,
                    DG_Chanls[0].objs_index, DG_Chanls[0].prim_index,
                    DG_Chanls[1].objs_index, DG_Chanls[1].prim_index,
                    mgs_dbg_drawotag, sotn_exeque_count,
-                   psyz_prof_exeq_us, psyz_prof_load_us, psyz_prof_load_n);
+                   psyz_prof_exeq_us, psyz_prof_exeq0_us, psyz_raster_split_row,
+                   psyz_prof_load_us, psyz_prof_load_n,
+                   psyz_prof_dual_batches, psyz_prof_single_batches);
             psyz_prof_exeq_us = 0;
+            psyz_prof_exeq0_us = 0;
+            psyz_prof_dual_batches = 0;
+            psyz_prof_single_batches = 0;
             psyz_prof_load_us = 0;
             psyz_prof_load_n = 0;
         }
