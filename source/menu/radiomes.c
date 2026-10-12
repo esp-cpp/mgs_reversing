@@ -441,7 +441,7 @@ void menu_radio_codec_task_proc_80047AA0()
          * face group -- state unwound the way the success path leaves it, so
          * the call is mute rather than fatal. */
         {
-            extern unsigned char  mgs_face_group[];
+            extern unsigned char *mgs_face_group;
             extern const unsigned mgs_face_group_size;
 
             if ((unsigned)pFacesGroupSize <= mgs_face_group_size)
@@ -770,7 +770,7 @@ void menu_radio_codec_helper_helper7_80048080()
      * free list corrupts it silently, and the damage would surface somewhere
      * else entirely, long afterwards. */
     {
-        extern unsigned char mgs_face_group[];
+        extern unsigned char *mgs_face_group;
         if (dword_800ABB38->field_20_pFacesGroup != mgs_face_group)
         {
             GV_FreeMemory(GV_PACKET_MEMORY0,

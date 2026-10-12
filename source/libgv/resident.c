@@ -7,10 +7,22 @@ extern unsigned char *StageCharacterEntries;
 unsigned char *SECTION(".sbss") GV_ResidentMemoryBottom;
 STATIC int     SECTION(".sbss") dword_800AB944;
 
+#ifdef __psyz
+/* the RAM image is a heap block bound at launch (port/esp32_arena.c), so
+ * its address is not a constant: set on the first init below */
+void *GV_ResidentAreaBottom = NULL;
+#else
 void *GV_ResidentAreaBottom = RESIDENT_BOTTOM;
+#endif
 
 void GV_InitResidentMemory( void )
 {
+#ifdef __psyz
+    if (!GV_ResidentAreaBottom)
+    {
+        GV_ResidentAreaBottom = RESIDENT_BOTTOM;
+    }
+#endif
     GV_ResidentMemoryBottom = GV_ResidentAreaBottom;
 }
 
@@ -44,7 +56,7 @@ void *GV_AllocResidentMemory( long size )
     {
         /* the reservation's floor is the real limit; StageCharacterEntries is a
          * native link-time address here and comparing against it is noise */
-        extern unsigned char mgs_main_ram[];
+        extern unsigned char *mgs_main_ram;
         if (GV_ResidentMemoryBottom < mgs_main_ram)
         {
             printf("Resident Memory Over !!\n");

@@ -194,7 +194,7 @@ int   GV_LoadInit( void *data, int name, int cache_mode );
  * allocation lands BEFORE the reservation, silently trampling the PSRAM
  * heap (the virtual CD's disc data lives there). */
 #define MGS_RESIDENT_HEADROOM 0x80000
-extern unsigned char mgs_main_ram[];
+extern unsigned char *mgs_main_ram;
 #define MEM_BOTTOM      ((void *)(mgs_main_ram + MGS_RESIDENT_HEADROOM + MGS_MAIN_RAM_SIZE))
 #else
 #define MEM_BOTTOM      ((void *)0x801E0000)

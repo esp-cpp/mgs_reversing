@@ -81,7 +81,7 @@ int mgs_ptr_in_ram(const void* p)
     return esp_ptr_external_ram(p) || esp_ptr_in_dram(p);
 }
 
-EXT_RAM_BSS_ATTR unsigned char mgs_main_ram[0x80000 + 0xC9000 + 0x20000];
+/* mgs_main_ram: port/esp32_arena.c (the PSX's RAM image, in the arena) */
 
 /* Skeleton measurement switches, read by libdg/screen.c's DG_ApplyRots.
  * mgs_dbg_bindpose: force every joint angle to zero so the assembled pose is
@@ -124,8 +124,7 @@ int mgs_dbg_trap_hits = 0;
  * radiomes.c uses this as the fallback when the pool says no, and must not
  * hand it back to GV_FreeMemory -- freeing a static buffer would corrupt the
  * allocator's free list far away from here and long after. */
-EXT_RAM_BSS_ATTR unsigned char mgs_face_group[0x80000];
-const unsigned mgs_face_group_size = sizeof(mgs_face_group);
+/* mgs_face_group, mgs_face_group_size: port/esp32_arena.c */
 
 /* Who last blanked the screen. libdg/display.c prints it when DG_SwapFrame
  * takes its skip branch; the four sites that park DG_UnDrawFrameCount at
@@ -194,13 +193,45 @@ void Mgs_PrintfSnapshotSetup(void) {
     Mgs_SnapshotPreserve(&log_task_handle, sizeof log_task_handle);
 }
 void Mgs_PrintfAfterRestore(void) { mgs_in_printf = 0; }
+static volatile int log_quit;
 static void log_task(void* arg) {
     static char line[512];
     (void)arg;
     for (;;) {
         if (xQueueReceive(log_queue, line, portMAX_DELAY) == pdTRUE) {
+            if (log_quit) {
+                vTaskSuspend(NULL); /* the shutdown deletes it from here */
+            }
             fputs(line, stdout);
         }
+    }
+}
+/* at cart shutdown (nothing prints through the queue any more): park the
+ * logger, delete it with its memory, drop the queue */
+void Mgs_LogShutdown(void) {
+    if (!log_queue) {
+        return;
+    }
+    if (log_task_handle) {
+        static const char nudge[512] = "";
+        int waited = 0;
+        log_quit = 1;
+        xQueueSend(log_queue, nudge, pdMS_TO_TICKS(50));
+        while (eTaskGetState(log_task_handle) != eSuspended && waited < 200) {
+            vTaskDelay(pdMS_TO_TICKS(5));
+            waited += 5;
+        }
+        if (eTaskGetState(log_task_handle) == eSuspended) {
+            vTaskDeleteWithCaps(log_task_handle);
+            log_task_handle = NULL;
+        } else {
+            printf("[log] logger task never parked; leaked\n");
+        }
+        log_quit = 0;
+    }
+    if (!log_task_handle) {
+        vQueueDelete(log_queue);
+        log_queue = NULL;
     }
 }
 

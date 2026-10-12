@@ -71,8 +71,9 @@ static int current_thread = -1;
 /* The stacks, at fixed addresses: a save state holds the threads' saved
  * contexts, and those embed stack addresses, so the stacks must be where
  * they were. PSRAM, as the heap ones were (MGS_THREAD_STACK_CAPS). */
-EXT_RAM_BSS_ATTR static unsigned char stack_pool[MGS_MAX_THREADS][MGS_THREAD_STACK]
-    __attribute__((aligned(16)));
+static unsigned char (*stack_pool)[MGS_THREAD_STACK]; /* in the arena (port/esp32_arena.c) */
+size_t Mgs_ThreadsStackBytes(void) { return (size_t)MGS_MAX_THREADS * MGS_THREAD_STACK; }
+void Mgs_ThreadsBindStacks(void* p) { stack_pool = (unsigned char(*)[MGS_THREAD_STACK])p; }
 
 /* The PSX's ChangeTh was a syscall and ran with interrupts masked; nothing
  * could observe it half-done. Here the vblank tick preempts at any instruction
@@ -440,8 +441,8 @@ void Mgs_ThreadsStopAll(void) {
         if (threads[i].handle && threads[i].entry) {
             vTaskDelete(threads[i].handle);
         }
-        /* the stacks are the fixed pool; the control blocks are kept for
-         * the next launch */
+        /* the stacks are the fixed pool; the control blocks are freed by
+         * Mgs_ThreadsFreeTcbs once the scheduler has retired the tasks */
         threads[i].handle = 0;
         threads[i].stack = NULL;
         threads[i].entry = 0;
@@ -452,6 +453,18 @@ void Mgs_ThreadsStopAll(void) {
     current_thread = -1;
     change_in_flight = 0;
     paused_thread = -1;
+}
+
+/* after Mgs_ThreadsStopAll and a scheduler round (the idle task has
+ * unlinked the deleted tasks): the control blocks go back to internal RAM */
+void Mgs_ThreadsFreeTcbs(void) {
+    int i;
+    for (i = 0; i < MGS_MAX_THREADS; i++) {
+        if (threads[i].tcb) {
+            heap_caps_free(threads[i].tcb);
+            threads[i].tcb = NULL;
+        }
+    }
 }
 
 /* ---------------------------------------------------------------------------

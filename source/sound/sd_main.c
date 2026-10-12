@@ -327,7 +327,7 @@ int sd_mem_alloc(void)
 {
 #ifdef __psyz
     {
-        extern unsigned char mgs_main_ram[];
+        extern unsigned char *mgs_main_ram;
         sng_data = mgs_main_ram + 0x80000 + 0xC9000; /* MEM_BOTTOM: same spot as the console */
     }
 #else

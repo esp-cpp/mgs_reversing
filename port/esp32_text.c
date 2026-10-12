@@ -31,8 +31,12 @@ static unsigned rd32(const unsigned char* p) {
     return p[0] | (p[1] << 8) | (p[2] << 16) | ((unsigned)p[3] << 24);
 }
 
+static char* slots; /* allocated once per launch: the tables are reset on relaunch */
+void Mgs_TextShutdown(void) {
+    free(slots);
+    slots = NULL;
+}
 void Mgs_TextOverride(void) {
-    static char* slots; /* allocated once per launch: the tables are reset on relaunch */
     char path[160];
     FILE* f;
     long size;

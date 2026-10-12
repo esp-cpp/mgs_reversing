@@ -279,7 +279,7 @@ void *NewStreamControl( int stream_code, int gcl_proc, int flags )
     /* the console put the stream buffer in the 128 KB above MEM_BOTTOM;
      * same offset, real memory */
     {
-        extern unsigned char mgs_main_ram[];
+        extern unsigned char *mgs_main_ram;
         /* 0xC9000 is MEM_BOTTOM within the reservation (libgv.h) */
         FS_StreamInit( mgs_main_ram + 0x80000 + 0xC9000 + 0x7800, FS_CDLOAD_BUF_SIZE );
     }

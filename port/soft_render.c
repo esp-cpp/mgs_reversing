@@ -23,8 +23,7 @@
  * Far too big for the S3's internal SRAM, so it goes to PSRAM. Needs
  * CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY. */
 #ifdef ESP_PLATFORM
-#include "esp_attr.h"
-EXT_RAM_BSS_ATTR u16 g_RawVram[VRAM_H * VRAM_W];
+extern u16* g_RawVram; /* port/esp32_arena.c: in the arena */
 #else
 u16 g_RawVram[VRAM_H * VRAM_W];
 #endif

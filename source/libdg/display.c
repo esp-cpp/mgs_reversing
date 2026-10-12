@@ -378,7 +378,7 @@ void DG_SwapFrame(void)
                 static int b = 6;
                 if (b > 0)
                 {
-                    extern unsigned short g_RawVram[];
+                    extern unsigned short *g_RawVram;
                     unsigned nz = 0, yy, xx, base = (1 - activeBuffer) * 320u;
                     b--;
                     DrawSync(0);
