@@ -192,6 +192,11 @@ char SECTION(".data") mineDetectorUnusable_8009E44C[] = {
         0x06,0x82,0x29,0x81,0x27,0x81,0x2F,0x90,0x48,0x90,0x49,0x81,0x27,0x81,0x0D,0x81,
         0x2A,0x81,0x04,0xD0,0x03,0x00,0x00,0x00};
 
+#ifdef __psyz
+/* the port replaces this with the disc's own text (port/esp32_text.c) */
+char *SECTION(".data") mineDetectorUnusable_ptr = mineDetectorUnusable_8009E44C;
+#endif
+
 menu_weapon_rpk_info SECTION(".data") gMenuItemRpkInfo_8009E484[] = {
     { "CIGS", 14 },
     { "SCOPE", 30 },
@@ -272,7 +277,11 @@ void menu_item_printDescription_8003B614(int itemIndex)
 
     if (itemIndex == IT_MineDetector && GM_DifficultyFlag >= DIFFICULTY_HARD)
     {
+#ifdef __psyz
+        itemDescription = mineDetectorUnusable_ptr;
+#else
         itemDescription = (char *)mineDetectorUnusable_8009E44C;
+#endif
     }
 
     menu_printDescription_8003F97C(itemDescription);

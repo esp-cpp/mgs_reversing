@@ -12,6 +12,12 @@ sector) and each stage runs until the next one starts.
 
 With --stages, only those stage blocks are written (as MGS/STAGE/<name>.bin)
 plus a rebuilt STAGE.DIR describing just them -- small enough to flash.
+
+    python extract_disc.py <disc.bin> <outdir> --exe
+
+writes only the disc's executable (SLUS_005.94 on the US disc) into outdir;
+--text writes only MGS/TEXT.DAT, the item and weapon descriptions pulled
+from that executable (the full extraction writes it as well).
 """
 import os
 import struct
@@ -69,6 +75,68 @@ class Disc(object):
         return out
 
 
+def find_text_tables(exe):
+    """The item and weapon description tables of the executable.
+
+    The decompilation carries Integral's Japanese descriptions; the port
+    patches in the disc's own. Every description starts with the font's
+    0xB0 0x14 control code and the tables are runs of pointers to them:
+    24 items + 2 frozen items (one run of 26, followed in memory by the
+    'mine detector unusable' string) and 10 weapons. Found by scanning so
+    the executable's revision does not matter."""
+    load = struct.unpack_from("<I", exe, 0x18)[0]
+    base = 0x800
+    strings = {}
+    at = exe.find(b"\xb0\x14")
+    while at >= 0:
+        end = exe.find(b"\x00", at)
+        s = exe[at:end]
+        if 8 < len(s) < 400 and sum(32 <= c < 127 for c in s) > len(s) // 2:
+            strings[load + at - base] = s
+        at = exe.find(b"\xb0\x14", at + 2)
+    words = struct.unpack_from("<%dI" % ((len(exe) - base) // 4), exe, base)
+    runs = []
+    k = 0
+    while k < len(words):
+        if words[k] in strings:
+            j = k
+            while j < len(words) and words[j] in strings:
+                j += 1
+            runs.append((k, j - k))
+            k = j
+        else:
+            k += 1
+    items = [r for r in runs if r[1] == 26]
+    weapons = [r for r in runs if r[1] == 10]
+    if len(items) != 1 or len(weapons) != 1:
+        raise SystemExit("description tables not found in the executable (runs: %r)"
+                         % [n for _, n in runs])
+    k, _ = items[0]
+    item_strs = [strings[words[k + t]] for t in range(24)]
+    frozen_strs = [strings[words[k + 24 + t]] for t in range(2)]
+    mine_addr = load + k * 4 + 26 * 4
+    mine = strings.get(mine_addr)
+    if mine is None:
+        raise SystemExit("mine-detector string not after the item table")
+    k, _ = weapons[0]
+    weapon_strs = [strings[words[k + t]] for t in range(10)]
+    return [(1, item_strs), (2, frozen_strs), (3, [mine]), (4, weapon_strs)]
+
+
+def write_text(exe, outdir, exe_name):
+    tables = [(0, [exe_name.encode("ascii")])] + find_text_tables(exe)
+    os.makedirs(os.path.join(outdir, "MGS"), exist_ok=True)
+    dst = os.path.join(outdir, "MGS", "TEXT.DAT")
+    with open(dst, "wb") as f:
+        f.write(b"MGST" + struct.pack("<II", 1, len(tables)))
+        for ident, strs in tables:
+            f.write(struct.pack("<II", ident, len(strs)))
+            for s in strs:
+                f.write(struct.pack("<H", len(s)) + s)
+    print("  %-16s %12d bytes (%s)" % ("TEXT.DAT", os.path.getsize(dst),
+          ", ".join("%d" % len(strs) for _, strs in tables)))
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
@@ -83,7 +151,30 @@ def main():
     root_lba = int.from_bytes(pvd[156 + 2:156 + 6], "little")
     root_len = int.from_bytes(pvd[156 + 10:156 + 14], "little")
 
-    mgs = [e for e in disc.listdir(root_lba, root_len) if e[0] == "MGS"]
+    root = disc.listdir(root_lba, root_len)
+    exe = None
+    for name, lba, size, isdir in root:
+        if not isdir and name.upper().startswith("SL") and "." in name:
+            exe = (name, disc.read(lba, size))
+    if "--text" in sys.argv:
+        # only MGS/TEXT.DAT: the English menu descriptions from the executable
+        if not exe:
+            raise SystemExit("no executable on this disc")
+        write_text(exe[1], outdir, exe[0])
+        return
+    if "--exe" in sys.argv:
+        # the executable (SLUS_005.94, SLPM_862.47, ...) alone, into outdir:
+        # the English menu text the port patches in comes from it
+        for name, lba, size, isdir in root:
+            if not isdir and name.upper().startswith("SL") and "." in name:
+                os.makedirs(outdir, exist_ok=True)
+                dst = os.path.join(outdir, name)
+                with open(dst, "wb") as f:
+                    f.write(disc.read(lba, size))
+                print("  %-16s %12d bytes -> %s" % (name, size, dst))
+        return
+
+    mgs = [e for e in root if e[0] == "MGS"]
     if not mgs:
         raise SystemExit("no MGS directory on this disc")
     entries = disc.listdir(mgs[0][1], mgs[0][2])
@@ -109,6 +200,8 @@ def main():
         print("  %-16s %12d bytes" % (name, size))
         with open(dst, "wb") as f:
             f.write(disc.read(lba, size))
+    if exe:
+        write_text(exe[1], outdir, exe[0])
 
     stage = [e for e in entries if e[0] == "STAGE.DIR"]
     if not stage:

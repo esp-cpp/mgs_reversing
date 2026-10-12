@@ -108,6 +108,14 @@ void font_load(void)
             LSTORE((ptr[0] << 24) | (ptr[1] << 16) | (ptr[2] << 8) | ptr[3], ptr);
         }
     }
+#ifdef __psyz
+    {
+        /* the menus' item and weapon descriptions from the disc's executable
+         * (port/esp32_text.c): the decompilation's own are Integral's */
+        extern void Mgs_TextOverride(void);
+        Mgs_TextOverride();
+    }
+#endif
 }
 
 void font_set_font_addr(int type, void *addr)
@@ -271,6 +279,14 @@ void *font_get_buffer_ptr(KCB *kcb)
     return kcb->cbuffer;
 }
 
+#ifdef __psyz
+/* The US executable's glyph table layout (port/esp32_text.c sets this from
+ * the disc's executable name): its font.res has no kana and no extra
+ * symbol block, so the 0x82xx range aliases the 0x81xx one and the 0x83xx
+ * to 0x95xx range (where the button icons and the item-name brackets are)
+ * starts 0xA9 glyphs earlier than Integral's. Read off SLUS_005.94. */
+int mgs_font_us;
+#endif
 static int get_zen_font_data(int code)
 {
     int new_var2;
@@ -281,6 +297,24 @@ static int get_zen_font_data(int code)
     // Clear flags from code
     code &= ~0x6000;
 
+#ifdef __psyz
+    if (mgs_font_us && code < 0x9600)
+    {
+        if (code < 0x8200)
+        {
+            var_v0 = code - 0x8101;
+        }
+        else if (code < 0x8300)
+        {
+            var_v0 = code - 0x8201;
+        }
+        else
+        {
+            var_v0 = code - 0x8F71 - (code / 256);
+        }
+        return var_v0 + 1;
+    }
+#endif
     if (code < 0x8200)
     {
         var_v0 = code - 0x8101;
