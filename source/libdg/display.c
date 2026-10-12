@@ -9,6 +9,7 @@
 #include "sdkconfig.h"
 #include <string.h>
 #include "psyz_prof.h"
+unsigned mgs_prof_enqueue_us;
 #define MGS_CY_PER_MS (CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ * 1000u)
 #else
 #define MGS_CY_PER_MS 360000u
@@ -240,6 +241,8 @@ void DG_SwapFrame(void)
                            psyz_prof_px ? psyz_prof_span_cy / psyz_prof_px : 0,
                            psyz_prof_texfrom_cy / MGS_CY_PER_MS,
                            pp.retile_n, pp.retile_cy / MGS_CY_PER_MS);
+                    printf("[mip] triangles by level: %u %u %u %u\n", pp.mip_tris[0],
+                           pp.mip_tris[1], pp.mip_tris[2], pp.mip_tris[3]);
                     psyz_prof_rows = psyz_prof_px = psyz_prof_span_cy = psyz_prof_texfrom_cy = 0;
                     /* per span type: bpp, g(ouraud)/f(lat), s(emi)/o(paque), m(odulated)/p(lain):
                      * ms, thousands of pixels, cycles per pixel, average span length */
@@ -273,16 +276,17 @@ void DG_SwapFrame(void)
 #undef psyz_prof_span_cy
 #undef psyz_prof_texfrom_cy
             printf("[swap] f%d vbl %u q %d/%d %d/%d drawot %u exeq %u "
-                   "raster_us %u/%u split %d load_us %u loads %u batches dual %u single %u\n",
+                   "raster_us %u/%u split %d enqueue_us %u load_us %u loads %u batches dual %u single %u\n",
                    beat, mgs_vblank_count,
                    DG_Chanls[0].objs_index, DG_Chanls[0].prim_index,
                    DG_Chanls[1].objs_index, DG_Chanls[1].prim_index,
                    mgs_dbg_drawotag, sotn_exeque_count,
                    psyz_prof_exeq_us, psyz_prof_exeq0_us, psyz_raster_split_row,
-                   psyz_prof_load_us, psyz_prof_load_n,
+                   mgs_prof_enqueue_us, psyz_prof_load_us, psyz_prof_load_n,
                    psyz_prof_dual_batches, psyz_prof_single_batches);
             psyz_prof_exeq_us = 0;
             psyz_prof_exeq0_us = 0;
+            mgs_prof_enqueue_us = 0;
             psyz_prof_dual_batches = 0;
             psyz_prof_single_batches = 0;
             psyz_prof_load_us = 0;
@@ -345,13 +349,26 @@ void DG_SwapFrame(void)
          * sends each frame once instead of on a fixed timer -- a scene that
          * takes four vblanks to draw was being sent twice. */
         { extern unsigned mgs_frame_seq; mgs_frame_seq++; }
+        { void Psyz_GpuFrameMark(void); Psyz_GpuFrameMark(); }
 #endif
         if (!DG_HikituriFlagOld)
         {
 #ifdef __psyz
             { extern unsigned mgs_dbg_drawotag; mgs_dbg_drawotag++; }
 #endif
+#ifdef __psyz
+            {
+                /* the OT walk copies every primitive into the GPU queue; the
+                 * rasterizer idles until it is handed over */
+                extern long long esp_timer_get_time(void);
+                extern unsigned mgs_prof_enqueue_us;
+                const long long t0 = esp_timer_get_time();
+                DG_DrawOTag(1 - activeBuffer);
+                mgs_prof_enqueue_us += (unsigned)(esp_timer_get_time() - t0);
+            }
+#else
             DG_DrawOTag(1 - activeBuffer);
+#endif
 #ifdef __psyz
             {
                 /* Flush the queue NOW and count what actually landed in the

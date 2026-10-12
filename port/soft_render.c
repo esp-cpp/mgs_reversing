@@ -41,7 +41,9 @@ u16 g_RawVram[VRAM_H * VRAM_W];
 #define SOFT_RASTER_IRAM IRAM_ATTR
 #endif
 #define SOFT_CLUT_CACHE
-#define SOFT_RASTER_RECIP /* RV32: no 64-bit divide instruction */
+#define SOFT_RASTER_RECIP      /* RV32: no 64-bit divide instruction */
+#define SOFT_RASTER_FLOAT_GRAD /* ...and the P4 has an FPU: gradients in float */
+#define SOFT_MIP_TEX           /* decimated texture copies for minified triangles */
 /* SOFT_TILED_TEX (texture fetches from an 8x8-tiled shadow of VRAM): off.
  * It takes a v-walk from 185 to ~80 cycles per texel, but the game's
  * triangles are small and touch fresh cache lines either way, and the
@@ -78,6 +80,7 @@ __attribute__((constructor)) static void bind_vram_early(void) {
 void Draw_Reset(void) {
     vram = g_RawVram;
     Draw_TiledInit();
+    Draw_MipInit();
     /* both workers' state: each core rasterizes its own band of rows */
     for (int c = 0; c < 2; c++) {
         SoftState* s = &st_c[c];
