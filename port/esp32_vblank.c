@@ -331,7 +331,7 @@ unsigned mgs_frame_seq;
 
 static void scanout_task(void* arg) {
     TickType_t next = xTaskGetTickCount();
-    extern unsigned short g_RawVram[];
+    extern unsigned short *g_RawVram;
     void lcd_present(const unsigned short* src, int rows);
     extern DISPENV g_dispenv;
     unsigned last_seq = 0;
